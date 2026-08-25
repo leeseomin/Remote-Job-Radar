@@ -1,0 +1,34 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "remote-job-radar",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-13",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "jobs.example.com",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "remote-job-radar-prod",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "../../packages/db/migrations"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "DEV_BYPASS_AUTH": "false",
+    "REQUIRE_ACCESS_USER": "true"
+  }
+}

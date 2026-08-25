@@ -1,0 +1,27 @@
+{
+  "name": "@remote-job-radar/crawler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "crawl:fast": "tsx src/cli.ts fast",
+    "crawl:browser": "tsx src/cli.ts browser",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@remote-job-radar/contracts": "workspace:*",
+    "@remote-job-radar/domain": "workspace:*",
+    "@remote-job-radar/shared": "workspace:*",
+    "cheerio": "^1.1.0",
+    "p-limit": "^7.0.0",
+    "playwright": "^1.55.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.3",
+    "vitest": "^4.0.0"
+  }
+}

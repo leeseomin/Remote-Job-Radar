@@ -1,0 +1,35 @@
+name: Backup user state
+
+on:
+  schedule:
+    - cron: "29 19 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Export companies, sources, and personal job actions
+        run: |
+          mkdir -p backup
+          curl --fail-with-body --silent --show-error \
+            --header "Accept: application/json" \
+            --header "Authorization: Bearer ${INGEST_BEARER_TOKEN}" \
+            --header "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+            --header "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+            "${APP_BASE_URL}/api/internal/export-user-data" \
+            --output "backup/remote-job-radar-user-data-${GITHUB_RUN_ID}.json"
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          INGEST_BEARER_TOKEN: ${{ secrets.INGEST_BEARER_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-job-radar-backup-${{ github.run_id }}
+          path: backup/
+          retention-days: 30

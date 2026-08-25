@@ -1,0 +1,31 @@
+{
+  "name": "remote-job-radar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "predev": "pnpm --filter @remote-job-radar/web build",
+    "dev": "pnpm --parallel --filter @remote-job-radar/worker --filter @remote-job-radar/web dev",
+    "dev:web": "pnpm --filter @remote-job-radar/web dev",
+    "dev:worker": "pnpm --filter @remote-job-radar/worker dev",
+    "build": "pnpm --filter @remote-job-radar/web build && pnpm --filter @remote-job-radar/worker build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "check": "pnpm typecheck && pnpm test && node scripts/source-check.mjs",
+    "crawl:fast": "pnpm --filter @remote-job-radar/crawler crawl:fast",
+    "crawl:browser": "pnpm --filter @remote-job-radar/crawler crawl:browser",
+    "db:migrate:local": "pnpm --filter @remote-job-radar/worker exec wrangler d1 migrations apply remote-job-radar-prod --local",
+    "db:seed:local": "pnpm --filter @remote-job-radar/worker exec wrangler d1 execute remote-job-radar-prod --local --file=../../packages/db/seed/demo.sql",
+    "db:reset:local": "rm -rf apps/worker/.wrangler/state && pnpm db:migrate:local && pnpm db:seed:local",
+    "deploy": "pnpm build && pnpm --filter @remote-job-radar/worker deploy"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.3",
+    "vitest": "^4.0.0"
+  }
+}

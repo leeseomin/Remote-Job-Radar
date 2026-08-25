@@ -1,0 +1,5 @@
+DEV_BYPASS_AUTH=true
+INGEST_BEARER_TOKEN=local-development-token
+INGEST_HMAC_SECRET_CURRENT=local-development-hmac-secret-change-me
+INGEST_HMAC_SECRET_PREVIOUS=
+USER_EMAIL=you@example.com
