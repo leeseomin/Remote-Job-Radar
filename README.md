@@ -31,16 +31,15 @@ Remote·Async-first·Frontend/Product·Three.js/WebGL/WebGPU 채용 공고를 �
 ```bash
 corepack enable
 corepack prepare pnpm@10.15.0 --activate
-pnpm install
-cp apps/worker/.dev.vars.example apps/worker/.dev.vars
-pnpm db:migrate:local
-pnpm db:seed:local
-pnpm dev
+./build.sh
 ```
 
 - Vue: `http://localhost:5173`
 - Worker: `http://localhost:8787`
 - Vite가 `/api`를 Worker로 프록시합니다.
+- `./build.sh`는 의존성 설치, 로컬 D1 마이그레이션·데모 시드, 전체 검사·빌드를 마친 뒤 개발 서버를 실행합니다.
+- 서버를 실행하지 않고 검사와 빌드까지만 수행하려면 `./build.sh --check-only`를 사용합니다.
+- 기존 `.dev.vars`와 로컬 D1을 삭제하지 않으며, 데모 시드는 기존 레코드를 덮어쓰지 않습니다.
 
 `pnpm-lock.yaml`은 공개 저장소에 함께 커밋하고 CI에서는 `--frozen-lockfile`로 설치합니다.
 

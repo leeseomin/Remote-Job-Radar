@@ -11,8 +11,8 @@ INSERT OR IGNORE INTO sources
   (id, company_id, kind, url, adapter_key, config_json, browser_required, crawl_interval_minutes,
    previous_job_count, consecutive_failures, next_due_at, status, created_at, updated_at)
 VALUES
-  ('source_vector_forge', 'company_vector_forge', 'greenhouse', 'https://example.invalid/vector-forge/careers', 'vectorforge', '{}', 0, 360, 2, 0, 4102444800, 'paused', 1786579200, 1786579200),
-  ('source_open_canvas', 'company_open_canvas', 'jsonld', 'https://example.invalid/open-canvas/jobs', NULL, '{}', 0, 360, 1, 0, 4102444800, 'paused', 1786579200, 1786579200),
+  ('source_vector_forge', 'company_vector_forge', 'greenhouse', 'https://example.invalid/vector-forge/careers', 'vectorforge', '{}', 0, 720, 2, 0, 4102444800, 'paused', 1786579200, 1786579200),
+  ('source_open_canvas', 'company_open_canvas', 'jsonld', 'https://example.invalid/open-canvas/jobs', NULL, '{}', 0, 720, 1, 0, 4102444800, 'paused', 1786579200, 1786579200),
   ('source_northstar', 'company_northstar', 'playwright', 'https://example.invalid/northstar/careers', NULL, '{"listSelector":".job-card","titleSelector":".title","linkSelector":"a"}', 1, 1440, 1, 1, 4102444800, 'quarantined', 1786579200, 1786579200);
 
 INSERT OR IGNORE INTO jobs
@@ -64,5 +64,5 @@ INSERT OR IGNORE INTO job_versions(job_id, content_hash, snapshot_json, observed
 SELECT id, content_hash, json_object('title', title, 'descriptionText', description_text, 'score', score), updated_at
 FROM jobs;
 
-INSERT OR REPLACE INTO job_actions(job_id, action, dismiss_reason, notes, applied_at, updated_at)
+INSERT OR IGNORE INTO job_actions(job_id, action, dismiss_reason, notes, applied_at, updated_at)
 VALUES ('job_demo_2', 'saved', NULL, '포트폴리오의 Vue/Canvas 경험과 잘 맞음', NULL, 1786579200);
