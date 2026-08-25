@@ -49,7 +49,6 @@ export const sourceConfigSchema = z.object({
   linkSelector: z.string().max(500).optional(),
   departmentSelector: z.string().max(500).optional(),
   detailDescriptionSelector: z.string().max(500).optional(),
-  browserRequired: z.boolean().optional(),
   waitForSelector: z.string().max(500).optional(),
   headers: sourceHeadersSchema.optional(),
 });
@@ -70,7 +69,7 @@ export const sourceInputSchema = z.object({
   adapterKey: z.string().max(500).nullable().optional(),
   config: sourceConfigSchema.default({}),
   browserRequired: z.boolean().default(false),
-  crawlIntervalMinutes: z.number().int().min(30).max(43_200).default(360),
+  crawlIntervalMinutes: z.number().int().min(30).max(43_200).default(720),
   active: z.boolean().default(true),
 });
 

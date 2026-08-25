@@ -177,9 +177,9 @@ function moveSelection(delta: number): void {
 }
 
 const keys = useMagicKeys();
-watch(keys.j, (pressed) => { if (pressed) moveSelection(1); });
-watch(keys.k, (pressed) => { if (pressed) moveSelection(-1); });
-watch(keys.escape, (pressed) => { if (pressed) radar.mobilePanel = "list"; });
+watch(keys.j!, (pressed) => { if (pressed) moveSelection(1); });
+watch(keys.k!, (pressed) => { if (pressed) moveSelection(-1); });
+watch(keys.escape!, (pressed) => { if (pressed) radar.mobilePanel = "list"; });
 
 function message(error: unknown): string {
   if (error instanceof ApiClientError) return `${error.message}${error.requestId ? ` · ${error.requestId}` : ""}`;

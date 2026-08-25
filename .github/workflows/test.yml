@@ -22,7 +22,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24.19.0"
+          cache: pnpm
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Typecheck, test, and inspect sources
         run: pnpm check

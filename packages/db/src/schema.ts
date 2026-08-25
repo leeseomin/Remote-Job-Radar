@@ -24,7 +24,7 @@ export const sources = sqliteTable("sources", {
   adapterKey: text("adapter_key"),
   configJson: text("config_json").notNull().default("{}"),
   browserRequired: integer("browser_required", { mode: "boolean" }).notNull().default(false),
-  crawlIntervalMinutes: integer("crawl_interval_minutes").notNull().default(360),
+  crawlIntervalMinutes: integer("crawl_interval_minutes").notNull().default(720),
   etag: text("etag"),
   lastModified: text("last_modified"),
   previousJobCount: integer("previous_job_count").notNull().default(0),

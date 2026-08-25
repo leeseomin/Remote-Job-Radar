@@ -3,6 +3,8 @@ import pLimit from "p-limit";
 import type { AdapterContext, AdapterOutput, CrawlSource, JobSourceAdapter, RawJob } from "../types";
 import { htmlToText, outputFromHttp, resolveUrl } from "./helpers";
 
+const MAX_DETAIL_REQUESTS = 60;
+
 function requiredSelector(value: string | undefined, name: string): string {
   if (!value) throw new Error(`static-html source requires config.${name}`);
   return value;
@@ -47,9 +49,14 @@ export async function parseStaticHtml(
   });
 
   if (!source.config.detailDescriptionSelector) return { jobs: preliminary, signals };
-  const limit = pLimit(2);
+  const detailCandidates = preliminary.filter((job) => job.canonicalUrl && job.descriptionText.length < 200);
+  const allowedDetails = new Set(detailCandidates.slice(0, MAX_DETAIL_REQUESTS));
+  if (detailCandidates.length > MAX_DETAIL_REQUESTS) {
+    signals.push(`detail-fetch-capped:${detailCandidates.length - MAX_DETAIL_REQUESTS}`);
+  }
+  const limit = pLimit(1);
   const jobs = await Promise.all(preliminary.map((job) => limit(async () => {
-    if (!job.canonicalUrl || job.descriptionText.length >= 200) return job;
+    if (!allowedDetails.has(job)) return job;
     try {
       const detail = await context.http.get(job.canonicalUrl, { headers: source.config.headers });
       const detail$ = cheerio.load(detail.body);

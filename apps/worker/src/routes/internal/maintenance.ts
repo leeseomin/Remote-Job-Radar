@@ -27,6 +27,7 @@ maintenanceRoutes.post("/cleanup", async (c) => {
   const day = 86_400;
   const results = await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM ingest_nonces WHERE used_at < ?").bind(now - day),
+    c.env.DB.prepare("DELETE FROM ingest_batches WHERE received_at < ?").bind(now - 30 * day),
     c.env.DB.prepare("DELETE FROM source_runs WHERE started_at < ?").bind(now - 30 * day),
     c.env.DB.prepare("DELETE FROM crawl_runs WHERE started_at < ?").bind(now - 90 * day),
     c.env.DB.prepare(`DELETE FROM job_versions WHERE rowid IN (
@@ -42,9 +43,10 @@ maintenanceRoutes.post("/cleanup", async (c) => {
   ]);
   return jsonOk(c, {
     removedNonces: results[0]?.meta.changes ?? 0,
-    removedSourceRuns: results[1]?.meta.changes ?? 0,
-    removedCrawlRuns: results[2]?.meta.changes ?? 0,
-    removedVersions: results[3]?.meta.changes ?? 0,
-    removedClosedJobs: results[4]?.meta.changes ?? 0,
+    removedIngestBatches: results[1]?.meta.changes ?? 0,
+    removedSourceRuns: results[2]?.meta.changes ?? 0,
+    removedCrawlRuns: results[3]?.meta.changes ?? 0,
+    removedVersions: results[4]?.meta.changes ?? 0,
+    removedClosedJobs: results[5]?.meta.changes ?? 0,
   });
 });

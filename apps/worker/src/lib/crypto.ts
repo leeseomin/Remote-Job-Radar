@@ -1,5 +1,11 @@
 const encoder = new TextEncoder();
 
+function ownedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 export function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -19,7 +25,7 @@ export function bytesToBase64Url(bytes: Uint8Array): string {
 
 export async function sha256Bytes(value: string | Uint8Array): Promise<Uint8Array> {
   const input = typeof value === "string" ? encoder.encode(value) : value;
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", input));
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", ownedArrayBuffer(input)));
 }
 
 export async function sha256Hex(value: string | Uint8Array): Promise<string> {
@@ -63,5 +69,5 @@ export async function verifyHmac(
     false,
     ["verify"],
   );
-  return crypto.subtle.verify("HMAC", key, signature, encoder.encode(canonical));
+  return crypto.subtle.verify("HMAC", key, ownedArrayBuffer(signature), encoder.encode(canonical));
 }

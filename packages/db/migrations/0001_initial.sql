@@ -20,7 +20,7 @@ CREATE TABLE sources (
   adapter_key TEXT,
   config_json TEXT NOT NULL DEFAULT '{}',
   browser_required INTEGER NOT NULL DEFAULT 0 CHECK(browser_required IN (0, 1)),
-  crawl_interval_minutes INTEGER NOT NULL DEFAULT 360,
+  crawl_interval_minutes INTEGER NOT NULL DEFAULT 720,
   etag TEXT,
   last_modified TEXT,
   previous_job_count INTEGER NOT NULL DEFAULT 0,

@@ -4,6 +4,7 @@ import type { AppEnv } from "../../env";
 import { unixNow } from "../../lib/db";
 import { ApiError } from "../../lib/errors";
 import { jsonOk } from "../../lib/http";
+import { classifySourceCompletion } from "../../lib/source-completion";
 
 interface SourceState {
   id: string;
@@ -12,27 +13,6 @@ interface SourceState {
   lease_owner: string | null;
   source_run_status: string | null;
   source_run_completed_at: number | null;
-}
-
-function quarantineReason(payload: ReturnType<typeof sourceCompleteSchema.parse>, storedBatches: number): string | null {
-  if (payload.status === "failed" || payload.status === "quarantined") {
-    return payload.errorCode ?? payload.signals[0] ?? "crawler-reported-failure";
-  }
-  if (payload.status === "not_modified") return null;
-  if (payload.httpStatus !== null && (payload.httpStatus === 403 || payload.httpStatus === 429 || payload.httpStatus >= 500)) {
-    return `http-${payload.httpStatus}`;
-  }
-  if (payload.expectedBatchCount !== payload.receivedBatchCount || storedBatches !== payload.expectedBatchCount) {
-    return "batch-count-mismatch";
-  }
-  if (payload.previousJobCount >= 5 && payload.fetchedJobCount === 0) return "unexpected-zero-jobs";
-  if (payload.previousJobCount >= 5 && payload.fetchedJobCount <= Math.floor(payload.previousJobCount * 0.2)) {
-    return "job-count-dropped-80-percent";
-  }
-  const suspicious = payload.signals.find((signal) =>
-    /captcha|login|required-selector-not-found|jsonld-jobposting-not-found|schema-invalid|all-title|empty-title|response-too-short/i.test(signal),
-  );
-  return suspicious ?? null;
 }
 
 export const sourceCompleteRoutes = new Hono<AppEnv>();
@@ -77,12 +57,12 @@ sourceCompleteRoutes.post("/source-complete", async (c) => {
     .bind(payload.runId, payload.sourceId)
     .first<{ count: number }>();
   const storedBatches = Number(batchCount?.count ?? 0);
-  const reason = quarantineReason(payload, storedBatches);
+  const disposition = classifySourceCompletion(payload, storedBatches);
   const now = unixNow();
   const nextDueAt = now + Number(state.crawl_interval_minutes) * 60;
   const sourceRunId = `${payload.runId}:${payload.sourceId}`;
 
-  if (payload.status === "not_modified" && !reason) {
+  if (payload.status === "not_modified" && disposition.kind === "complete") {
     await c.env.DB.batch([
       c.env.DB.prepare(`UPDATE sources SET
         etag = COALESCE(?, etag), last_modified = COALESCE(?, last_modified),
@@ -106,7 +86,7 @@ sourceCompleteRoutes.post("/source-complete", async (c) => {
     return jsonOk(c, { sourceId: payload.sourceId, status: "not_modified", jobsClosed: 0, nextDueAt });
   }
 
-  if (!reason && payload.status === "healthy") {
+  if (disposition.kind === "complete" && payload.status === "healthy") {
     const results = await c.env.DB.batch([
       c.env.DB.prepare(`UPDATE jobs SET
         missing_count = missing_count + 1,
@@ -144,8 +124,43 @@ sourceCompleteRoutes.post("/source-complete", async (c) => {
     });
   }
 
-  const retryMinutes = Math.max(Number(state.crawl_interval_minutes) * 2, 720);
+  const retryMinutes = Math.max(Number(state.crawl_interval_minutes), 720);
   const retryAt = now + retryMinutes * 60;
+  if (disposition.kind === "retry") {
+    await c.env.DB.batch([
+      c.env.DB.prepare(`UPDATE sources SET
+        consecutive_failures = consecutive_failures + 1,
+        last_failure_at = ?, next_due_at = ?, lease_owner = NULL, lease_until = NULL,
+        status = 'active', updated_at = ? WHERE id = ?`)
+        .bind(now, retryAt, now, payload.sourceId),
+      c.env.DB.prepare(`INSERT INTO source_runs
+        (id, run_id, source_id, status, http_status, fetched_job_count, previous_job_count,
+         response_hash, error_code, error_message, started_at, completed_at)
+        VALUES (?, ?, ?, 'failed', ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(run_id, source_id) DO UPDATE SET
+          status = excluded.status, http_status = excluded.http_status,
+          fetched_job_count = excluded.fetched_job_count, previous_job_count = excluded.previous_job_count,
+          response_hash = excluded.response_hash, error_code = excluded.error_code,
+          error_message = excluded.error_message, completed_at = excluded.completed_at`)
+        .bind(sourceRunId, payload.runId, payload.sourceId, payload.httpStatus, payload.fetchedJobCount,
+          payload.previousJobCount, payload.responseHash, disposition.reason,
+          payload.errorMessage ?? payload.signals.join("; "), now, now),
+      c.env.DB.prepare(`UPDATE crawl_runs SET failed_source_count = failed_source_count + 1 WHERE id = ?`)
+        .bind(payload.runId),
+    ]);
+    return jsonOk(c, {
+      sourceId: payload.sourceId,
+      status: "retry_scheduled",
+      reason: disposition.reason,
+      jobsClosed: 0,
+      retryAt,
+    });
+  }
+
+  if (disposition.kind !== "quarantine") {
+    throw new ApiError(500, "INVALID_SOURCE_DISPOSITION", "소스 완료 상태를 확정할 수 없습니다.");
+  }
+  const reason = disposition.reason;
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE sources SET
       consecutive_failures = consecutive_failures + 1,
@@ -162,7 +177,7 @@ sourceCompleteRoutes.post("/source-complete", async (c) => {
         response_hash = excluded.response_hash, error_code = excluded.error_code,
         error_message = excluded.error_message, completed_at = excluded.completed_at`)
       .bind(sourceRunId, payload.runId, payload.sourceId, payload.httpStatus, payload.fetchedJobCount,
-        payload.previousJobCount, payload.responseHash, reason ?? payload.errorCode ?? "unknown",
+        payload.previousJobCount, payload.responseHash, reason,
         payload.errorMessage ?? payload.signals.join("; "), now, now),
     c.env.DB.prepare(`UPDATE crawl_runs SET failed_source_count = failed_source_count + 1 WHERE id = ?`)
       .bind(payload.runId),
@@ -170,7 +185,7 @@ sourceCompleteRoutes.post("/source-complete", async (c) => {
   return jsonOk(c, {
     sourceId: payload.sourceId,
     status: "quarantined",
-    reason: reason ?? "unknown",
+    reason,
     jobsClosed: 0,
     retryAt,
   });

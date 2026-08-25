@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 const requiredFiles = [
   "README.md",
+  "pnpm-lock.yaml",
   "VALIDATION.md",
   "SECURITY.md",
   "docs/DEPLOY_KO.md",
@@ -28,6 +29,7 @@ const requiredFiles = [
   "packages/domain/src/classify.ts",
   "packages/domain/test/classify.test.ts",
   "packages/db/migrations/0001_initial.sql",
+  "packages/db/migrations/0002_fts_and_retention.sql",
   "packages/db/seed/demo.sql",
   ".github/workflows/test.yml",
   ".github/workflows/crawl-fast.yml",
@@ -63,6 +65,15 @@ for (const token of [
   "CREATE TRIGGER jobs_fts_update",
 ]) {
   if (!migration.includes(token)) throw new Error(`Migration is missing ${token}`);
+}
+
+const optimizationMigration = await readFile(resolve("packages/db/migrations/0002_fts_and_retention.sql"), "utf8");
+for (const token of [
+  "WHEN OLD.title IS NOT NEW.title",
+  "idx_batches_received_at",
+  "crawl_interval_minutes = 720",
+]) {
+  if (!optimizationMigration.includes(token)) throw new Error(`Optimization migration is missing ${token}`);
 }
 
 const ingest = await readFile(resolve("apps/worker/src/routes/internal/ingest.ts"), "utf8");

@@ -4,6 +4,7 @@ import type { NormalizedJob, SourceCompletePayload } from "@remote-job-radar/con
 import { loadConfig } from "../config";
 import { writeJsonArtifact } from "../artifacts";
 import { getAdapter } from "../adapters";
+import { PlaywrightAdapter, type BrowserCollectionResult } from "../adapters/playwright";
 import { SafeHttpClient } from "../fetch/http-client";
 import { normalizeRawJob } from "../normalize/normalize-job";
 import { RadarApiClient } from "../transport/api-client";
@@ -71,14 +72,20 @@ async function processSource(
   api: RadarApiClient,
   http: SafeHttpClient,
   artifactsDir: string,
+  browserResult?: BrowserCollectionResult,
 ): Promise<SourceOutcome> {
   const fetchedAt = Math.floor(Date.now() / 1_000);
   let output: AdapterOutput | null = null;
   let sentBatches = 0;
   let expectedBatches = 0;
   try {
-    const adapter = getAdapter(source.adapter);
-    output = await adapter.collect(source, { http, artifactsDir });
+    if (browserResult) {
+      if (!browserResult.ok) throw browserResult.error;
+      output = browserResult.output;
+    } else {
+      const adapter = getAdapter(source.adapter);
+      output = await adapter.collect(source, { http, artifactsDir });
+    }
     if (output.status === "not_modified") {
       const payload: SourceCompletePayload = {
         runId,
@@ -109,7 +116,10 @@ async function processSource(
     }
     if (output.jobs.length > 0 && normalized.length === 0) signals.push("all-title-or-schema-invalid");
 
-    const deduped = [...new Map(normalized.map((job) => [`${job.externalId}\n${job.canonicalUrl}`, job])).values()];
+    // D1 identifies jobs by (source_id, external_id), so the in-run key must match it.
+    // Keeping two URL variants of the same external ID would inflate fetchedJobCount
+    // even though the Worker ultimately stores a single row.
+    const deduped = [...new Map(normalized.map((job) => [job.externalId, job])).values()];
     const anomaly = severeSignal(signals) ?? countDropReason(source, deduped.length);
     const batches = anomaly ? [] : createIngestBatches(runId, source.id, deduped, fetchedAt);
     expectedBatches = batches.length;
@@ -192,6 +202,16 @@ export async function runCrawler(runner: "fast" | "browser"): Promise<void> {
   const api = new RadarApiClient(config);
   const http = new SafeHttpClient();
   const plan = await api.getCrawlPlan(runner, 200);
+  const browserResults = new Map<string, BrowserCollectionResult>();
+  if (runner === "browser") {
+    const browserSources = plan.sources.filter((source) => source.adapter === "playwright");
+    if (browserSources.length > 0) {
+      const adapter = getAdapter("playwright");
+      if (!(adapter instanceof PlaywrightAdapter)) throw new Error("Playwright adapter does not support run-scoped collection");
+      const collected = await adapter.collectMany(browserSources, { http, artifactsDir: config.artifactsDir });
+      for (const [sourceId, result] of collected) browserResults.set(sourceId, result);
+    }
+  }
   const globalLimit = pLimit(6);
   const hostLimits = new Map<string, LimitFunction>();
   const getHostLimit = (host: string): LimitFunction => {
@@ -204,7 +224,7 @@ export async function runCrawler(runner: "fast" | "browser"): Promise<void> {
 
   const outcomes = await Promise.all(plan.sources.map((source) =>
     globalLimit(() => getHostLimit(adapterHostname(source))(() =>
-      processSource(source, plan.runId, api, http, config.artifactsDir),
+      processSource(source, plan.runId, api, http, config.artifactsDir, browserResults.get(source.id)),
     )),
   ));
   const completed = outcomes.filter((outcome) => outcome.status === "healthy" || outcome.status === "not_modified").length;

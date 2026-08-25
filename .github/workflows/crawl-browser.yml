@@ -2,7 +2,8 @@ name: Crawl browser sources
 
 on:
   schedule:
-    - cron: "43 18 * * *"
+    # 09:43 and 21:43 Asia/Seoul (UTC+9)
+    - cron: "43 0,12 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -15,7 +16,7 @@ permissions:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
@@ -25,13 +26,15 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24.19.0"
+          cache: pnpm
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Install Chromium
         run: pnpm --filter @remote-job-radar/crawler exec playwright install --with-deps chromium
       - name: Crawl browser-only sources
         run: pnpm crawl:browser
         env:
+          CRAWLEE_STORAGE_DIR: ${{ runner.temp }}/remote-job-radar-crawlee
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

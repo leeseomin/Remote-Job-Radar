@@ -15,6 +15,9 @@ function validateAdapterRequirements(input: SourceInput): void {
       (!input.config.listSelector || !input.config.titleSelector)) {
     throw new ApiError(422, "SELECTORS_REQUIRED", `${input.kind} 소스에는 listSelector와 titleSelector가 필요합니다.`);
   }
+  if (input.browserRequired && input.kind !== "playwright") {
+    throw new ApiError(422, "PLAYWRIGHT_ADAPTER_REQUIRED", "브라우저 수집은 playwright adapter로 명시해야 합니다.");
+  }
 }
 
 async function ensureCompanyExists(c: Context<AppEnv>, companyId: string): Promise<void> {
@@ -44,7 +47,7 @@ sourcesRoutes.post("/", async (c) => {
   await ensureCompanyExists(c, parsed.data.companyId);
   const now = unixNow();
   const id = `source_${crypto.randomUUID()}`;
-  const browserRequired = parsed.data.kind === "playwright" || parsed.data.browserRequired;
+  const browserRequired = parsed.data.kind === "playwright";
   await c.env.DB.prepare(`INSERT INTO sources
     (id, company_id, kind, url, adapter_key, config_json, browser_required,
      crawl_interval_minutes, next_due_at, status, created_at, updated_at)
@@ -94,7 +97,7 @@ sourcesRoutes.patch("/:id", async (c) => {
   await ensureCompanyExists(c, candidate.data.companyId);
 
   const now = unixNow();
-  const nextBrowserRequired = candidate.data.kind === "playwright" || candidate.data.browserRequired ? 1 : 0;
+  const nextBrowserRequired = candidate.data.kind === "playwright" ? 1 : 0;
   const nextStatus = patch.data.active === undefined
     ? String(current.status)
     : patch.data.active ? "active" : "paused";

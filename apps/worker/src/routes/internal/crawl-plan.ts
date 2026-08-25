@@ -32,7 +32,9 @@ crawlPlanRoutes.get("/crawl-plan", async (c) => {
     throw new ApiError(422, "INVALID_CRAWL_REQUEST_ID", "X-Crawl-Request-Id 형식이 올바르지 않습니다.");
   }
   const runId = `run_${runner}_${crawlRequestId}`;
-  const leaseSeconds = runner === "browser" ? 45 * 60 : 30 * 60;
+  // Keep the lease longer than the corresponding Actions job timeout so a
+  // second scheduled run cannot reclaim a source while it is still ingesting.
+  const leaseSeconds = runner === "browser" ? 90 * 60 : 60 * 60;
   const githubRunId = c.req.header("X-GitHub-Run-Id") ?? null;
   const triggerType = c.req.header("X-GitHub-Event") ?? "manual";
   const browserRequired = runner === "browser" ? 1 : 0;

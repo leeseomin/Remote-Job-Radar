@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@crawlee/playwright": "^3.18.0",
     "@remote-job-radar/contracts": "workspace:*",
     "@remote-job-radar/domain": "workspace:*",
     "@remote-job-radar/shared": "workspace:*",

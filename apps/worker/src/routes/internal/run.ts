@@ -46,7 +46,7 @@ async function completeRun(c: Context<AppEnv>) {
       ...parsed.data,
       completedAt: state.completed_at,
       alreadyCompleted: true,
-      danglingSourcesQuarantined: 0,
+      danglingSourcesScheduledForRetry: 0,
     });
   }
 
@@ -66,7 +66,6 @@ async function completeRun(c: Context<AppEnv>) {
   }
 
   const now = unixNow();
-  const retryAt = now + 12 * 60 * 60;
   const dangling = await c.env.DB.prepare(`SELECT COUNT(*) AS count
     FROM source_runs WHERE run_id = ? AND status = 'running'`)
     .bind(parsed.data.runId)
@@ -76,15 +75,16 @@ async function completeRun(c: Context<AppEnv>) {
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE sources SET
       consecutive_failures = consecutive_failures + 1,
-      last_failure_at = ?, next_due_at = ?, lease_owner = NULL, lease_until = NULL,
-      status = 'quarantined', updated_at = ?
+      last_failure_at = ?, next_due_at = ? + MAX(crawl_interval_minutes, 720) * 60,
+      lease_owner = NULL, lease_until = NULL,
+      status = 'active', updated_at = ?
       WHERE lease_owner = ? AND id IN (
         SELECT source_id FROM source_runs WHERE run_id = ? AND status = 'running'
       )`)
-      .bind(now, retryAt, now, parsed.data.runId, parsed.data.runId),
+      .bind(now, now, now, parsed.data.runId, parsed.data.runId),
     c.env.DB.prepare(`UPDATE source_runs SET
       status = 'failed', error_code = 'run-finalized-without-source-complete',
-      error_message = 'The crawler run ended before source-complete was accepted.',
+      error_message = 'The crawler run ended before source-complete was accepted; retry scheduled.',
       completed_at = ?
       WHERE run_id = ? AND status = 'running'`)
       .bind(now, parsed.data.runId),
@@ -103,7 +103,7 @@ async function completeRun(c: Context<AppEnv>) {
   return jsonOk(c, {
     ...parsed.data,
     completedAt: now,
-    danglingSourcesQuarantined: danglingCount,
+    danglingSourcesScheduledForRetry: danglingCount,
   });
 }
 

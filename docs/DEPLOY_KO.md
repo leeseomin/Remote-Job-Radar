@@ -55,6 +55,10 @@ Bearer와 HMAC은 서로 다른 32바이트 이상의 난수로 생성하십시�
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 
+저장소는 공개로 두되 실제 서비스는 계속 Cloudflare Access 뒤에 둡니다. Secret 값이나 실제 토큰을 소스, issue, Actions 로그, artifact에 넣지 마십시오. Pull request workflow에는 배포·수집 Secret을 전달하지 않고, 예약·배포 workflow는 기본 브랜치의 검토된 코드에서만 실행합니다.
+
+공개 저장소의 표준 GitHub-hosted Runner는 무료이며 분(minutes) 한도가 없지만, larger runner·artifact storage 및 일반적인 Actions 실행 제한은 별도입니다. 또한 공개 저장소에 60일간 활동이 없으면 예약 workflow가 자동 비활성화될 수 있으므로 장기 무변경 운영 시 Actions 화면에서 활성 상태를 확인합니다.
+
 ## 6. 첫 배포
 
 ```bash
@@ -71,3 +75,5 @@ pnpm deploy
 - 잘못된 HMAC 요청이 401인지 확인
 - 동일 nonce/batch가 거부되는지 확인
 - 실패한 소스가 기존 공고를 닫지 않는지 확인
+- Fast/Browser workflow가 각각 12시간 간격으로 활성 상태인지 확인
+- 공개 저장소의 최근 활동이 60일을 넘기기 전에 예약 workflow 비활성화 여부 확인

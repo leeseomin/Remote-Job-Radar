@@ -7,6 +7,7 @@ on:
       - "apps/**"
       - "packages/**"
       - "package.json"
+      - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "tsconfig.base.json"
       - ".github/workflows/deploy.yml"
@@ -32,8 +33,9 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24.19.0"
+          cache: pnpm
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Validate
         run: pnpm check
       - name: Apply D1 migrations

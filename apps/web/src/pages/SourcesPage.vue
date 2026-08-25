@@ -24,8 +24,7 @@ const sourceForm = reactive({
   kind: "greenhouse",
   url: "",
   adapterKey: "",
-  crawlIntervalMinutes: 360,
-  browserRequired: false,
+  crawlIntervalMinutes: 720,
   active: true,
   configText: "{}",
 });
@@ -33,9 +32,6 @@ const sourceForm = reactive({
 const sourcesQuery = useQuery({ queryKey: ["sources"], queryFn: api.sources });
 const companiesQuery = useQuery({ queryKey: ["companies"], queryFn: api.companies });
 
-watch(() => sourceForm.kind, (kind) => {
-  sourceForm.browserRequired = kind === "playwright";
-});
 watch(() => companiesQuery.data.value, (companies) => {
   if (!sourceForm.companyId && companies?.[0]) sourceForm.companyId = companies[0].id;
 }, { immediate: true });
@@ -55,7 +51,7 @@ const createMutation = useMutation({
       url: sourceForm.url,
       adapterKey: sourceForm.adapterKey.trim() || null,
       config,
-      browserRequired: sourceForm.browserRequired,
+      browserRequired: sourceForm.kind === "playwright",
       crawlIntervalMinutes: sourceForm.crawlIntervalMinutes,
       active: sourceForm.active,
     });
@@ -65,8 +61,7 @@ const createMutation = useMutation({
     Object.assign(sourceForm, {
       url: "",
       adapterKey: "",
-      crawlIntervalMinutes: 360,
-      browserRequired: false,
+      crawlIntervalMinutes: 720,
       active: true,
       configText: "{}",
     });
@@ -96,9 +91,8 @@ const stats = computed(() => {
   };
 });
 
-function isStale(nextDueAt: number, browser: number): boolean {
-  const threshold = (browser ? 36 : 12) * 3_600;
-  return Math.floor(Date.now() / 1_000) - nextDueAt > threshold;
+function isStale(nextDueAt: number): boolean {
+  return Math.floor(Date.now() / 1_000) - nextDueAt > 12 * 3_600;
 }
 
 function message(error: unknown): string {
@@ -170,7 +164,7 @@ function message(error: unknown): string {
         </label>
       </div>
       <div class="inline-options">
-        <label><input v-model="sourceForm.browserRequired" type="checkbox" :disabled="sourceForm.kind === 'playwright'" /> 브라우저 러너 사용</label>
+        <label><input :checked="sourceForm.kind === 'playwright'" type="checkbox" disabled /> Playwright adapter는 브라우저 러너 사용</label>
         <label><input v-model="sourceForm.active" type="checkbox" /> 즉시 활성화</label>
       </div>
       <div v-if="formError" class="form-error">{{ formError }}</div>
@@ -196,7 +190,7 @@ function message(error: unknown): string {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="source in sourcesQuery.data.value || []" :key="source.id" :class="{ stale: isStale(source.next_due_at, source.browser_required), disabled: !source.company_active }">
+          <tr v-for="source in sourcesQuery.data.value || []" :key="source.id" :class="{ stale: isStale(source.next_due_at), disabled: !source.company_active }">
             <td>
               <div class="table-primary">{{ source.company_name }}</div>
               <div class="table-secondary"><code>{{ source.kind }}</code><span>{{ source.adapter_key || 'URL mode' }}</span></div>
@@ -205,7 +199,7 @@ function message(error: unknown): string {
             <td>
               <SourceStatusBadge :status="source.status" :failures="source.consecutive_failures" />
               <div v-if="!source.company_active" class="stale-label">company paused</div>
-              <div v-else-if="isStale(source.next_due_at, source.browser_required)" class="stale-label">stale</div>
+              <div v-else-if="isStale(source.next_due_at)" class="stale-label">stale</div>
             </td>
             <td>
               <div class="table-primary">{{ source.last_http_status ? `HTTP ${source.last_http_status}` : '실행 전' }}</div>
