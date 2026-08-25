@@ -51,12 +51,25 @@ const versionsQuery = useQuery({
 });
 
 const sortedEvidence = computed(() => [...(props.job?.evidence ?? [])].sort((a, b) => b.effect - a.effect));
+const evidenceLabels: Record<string, string> = {
+  eligibleFromKorea: "한국 지원 가능성",
+  asyncLevel: "Async 적합도",
+  remoteScope: "Remote 범위",
+  timezoneOverlap: "시간대 중첩",
+  skills: "기술 스택",
+  roleFit: "직무 적합도",
+  salary: "급여 정보",
+};
 const salary = computed(() => props.job ? salaryText(
   props.job.salary_currency,
   props.job.salary_min,
   props.job.salary_max,
   props.job.salary_interval,
 ) : "—");
+
+function evidenceLabel(field: string): string {
+  return evidenceLabels[field] ?? field.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
 
 function send(action: "saved" | "dismissed" | "applied"): void {
   emit("action", {
@@ -68,11 +81,11 @@ function send(action: "saved" | "dismissed" | "applied"): void {
 </script>
 
 <template>
-  <aside class="detail-panel">
-    <div v-if="loading" class="panel-state">
+  <aside class="detail-panel" aria-label="선택한 공고 상세">
+    <div v-if="loading" class="panel-state" role="status">
       <span class="spinner" /> 공고 상세를 불러오는 중…
     </div>
-    <div v-else-if="error" class="panel-state error-state">{{ error }}</div>
+    <div v-else-if="error" class="panel-state error-state" role="alert">{{ error }}</div>
     <div v-else-if="!job" class="panel-state">
       목록에서 공고를 선택하십시오.
     </div>
@@ -89,12 +102,12 @@ function send(action: "saved" | "dismissed" | "applied"): void {
             <span v-if="job.department">{{ job.department }}</span>
             <span v-if="job.employment_type">{{ job.employment_type }}</span>
           </div>
-          <a class="primary-link" :href="job.canonical_url" target="_blank" rel="noopener noreferrer">
+          <a class="primary-link" :href="job.canonical_url" target="_blank" rel="noopener noreferrer" aria-label="원문 공고를 새 창에서 열기">
             원문 공고 열기 <ArrowUpRight :size="15" />
           </a>
         </header>
 
-        <section class="detail-section signal-grid">
+        <section class="detail-section signal-grid" aria-label="공고 핵심 판정">
           <div class="signal-card" :class="`eligibility-${job.eligible_from_korea}`">
             <Globe2 :size="17" />
             <span>지원 가능 지역</span>
@@ -128,7 +141,7 @@ function send(action: "saved" | "dismissed" | "applied"): void {
                 {{ item.effect >= 0 ? '+' : '' }}{{ item.effect }}
               </strong>
               <div>
-                <span>{{ item.field }}</span>
+                <span>{{ evidenceLabel(item.field) }}</span>
                 <p>{{ item.text }}</p>
               </div>
             </article>
@@ -164,7 +177,7 @@ function send(action: "saved" | "dismissed" | "applied"): void {
 
         <section class="detail-section notes-section">
           <div class="section-heading"><h3>개인 메모</h3></div>
-          <textarea v-model="notes" rows="4" placeholder="지원 포인트, 준비할 내용, 연락 기록…" />
+          <textarea v-model="notes" rows="4" aria-label="개인 메모" placeholder="지원 포인트, 준비할 내용, 연락 기록…" />
           <label class="field-stack">
             <span>제외 이유</span>
             <input v-model="dismissReason" placeholder="예: US only, 회의 비중 높음" />
@@ -173,22 +186,22 @@ function send(action: "saved" | "dismissed" | "applied"): void {
       </div>
 
       <footer class="detail-actions">
-        <button class="action-button save-action" :disabled="actionPending" @click="send('saved')">
+        <button type="button" class="action-button save-action" :disabled="actionPending" @click="send('saved')">
           <Bookmark :size="16" /> Save
         </button>
-        <button class="action-button applied-action" :disabled="actionPending" @click="send('applied')">
+        <button type="button" class="action-button applied-action" :disabled="actionPending" @click="send('applied')">
           <CheckCircle2 :size="16" /> Applied
         </button>
-        <button class="action-button dismiss-action" :disabled="actionPending" @click="send('dismissed')">
+        <button type="button" class="action-button dismiss-action" :disabled="actionPending" @click="send('dismissed')">
           <CircleOff :size="16" /> Dismiss
         </button>
-        <button v-if="job.action" class="icon-button" title="상태 지우기" :disabled="actionPending" @click="$emit('clear')">
+        <button v-if="job.action" type="button" class="icon-button" title="상태 지우기" aria-label="저장된 상태 지우기" :disabled="actionPending" @click="$emit('clear')">
           <RotateCcw :size="16" />
         </button>
-        <button v-else class="icon-button" title="메모와 Save 상태 저장" :disabled="actionPending" @click="send('saved')">
+        <button v-else type="button" class="icon-button" title="메모와 Save 상태 저장" aria-label="메모와 Save 상태 저장" :disabled="actionPending" @click="send('saved')">
           <Save :size="16" />
         </button>
-        <a class="icon-button" :href="job.canonical_url" target="_blank" rel="noopener noreferrer" title="원문 열기">
+        <a class="icon-button" :href="job.canonical_url" target="_blank" rel="noopener noreferrer" title="원문 열기" aria-label="원문 공고를 새 창에서 열기">
           <ExternalLink :size="16" />
         </a>
       </footer>

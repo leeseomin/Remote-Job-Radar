@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { useMagicKeys, watchDebounced } from "@vueuse/core";
+import { watchDebounced } from "@vueuse/core";
 import {
   Bookmark,
   BriefcaseBusiness,
@@ -168,18 +168,33 @@ function clearAll(): void {
 }
 
 function moveSelection(delta: number): void {
-  const element = document.activeElement;
-  if (element && ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName)) return;
   if (!jobs.value.length) return;
   const next = Math.max(0, Math.min(jobs.value.length - 1, (selectedIndex.value < 0 ? 0 : selectedIndex.value) + delta));
   const job = jobs.value[next];
-  if (job) radar.selectJob(job.id);
+  if (!job) return;
+  radar.selectJob(job.id);
+  requestAnimationFrame(() => {
+    const card = Array.from(document.querySelectorAll<HTMLElement>(".job-card"))
+      .find((element) => element.dataset.jobId === job.id);
+    card?.focus();
+    card?.scrollIntoView({ block: "nearest" });
+  });
 }
 
-const keys = useMagicKeys();
-watch(keys.j!, (pressed) => { if (pressed) moveSelection(1); });
-watch(keys.k!, (pressed) => { if (pressed) moveSelection(-1); });
-watch(keys.escape!, (pressed) => { if (pressed) radar.mobilePanel = "list"; });
+function handleListKeydown(event: KeyboardEvent): void {
+  if (event.altKey || event.ctrlKey || event.metaKey) return;
+  const target = event.target as HTMLElement | null;
+  if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+  if (event.key.toLowerCase() === "j" || event.key === "ArrowDown") {
+    event.preventDefault();
+    moveSelection(1);
+  } else if (event.key.toLowerCase() === "k" || event.key === "ArrowUp") {
+    event.preventDefault();
+    moveSelection(-1);
+  } else if (event.key === "Escape") {
+    radar.mobilePanel = "list";
+  }
+}
 
 function message(error: unknown): string {
   if (error instanceof ApiClientError) return `${error.message}${error.requestId ? ` · ${error.requestId}` : ""}`;
@@ -189,21 +204,24 @@ function message(error: unknown): string {
 
 <template>
   <section class="radar-page">
-    <div class="mobile-panel-switcher">
-      <button :class="{ active: radar.mobilePanel === 'filters' }" @click="radar.mobilePanel = 'filters'"><Filter :size="15" /> 필터</button>
-      <button :class="{ active: radar.mobilePanel === 'list' }" @click="radar.mobilePanel = 'list'">목록 {{ jobs.length }}</button>
-      <button :class="{ active: radar.mobilePanel === 'detail' }" :disabled="!radar.selectedJobId" @click="radar.mobilePanel = 'detail'">상세</button>
+    <h1 class="sr-only">Remote Job Radar</h1>
+    <div class="mobile-panel-switcher" role="tablist" aria-label="Radar 패널 선택">
+      <button role="tab" :aria-selected="radar.mobilePanel === 'filters'" aria-controls="radar-filters" :class="{ active: radar.mobilePanel === 'filters' }" @click="radar.mobilePanel = 'filters'"><Filter :size="15" /> 필터</button>
+      <button role="tab" :aria-selected="radar.mobilePanel === 'list'" aria-controls="radar-list" :class="{ active: radar.mobilePanel === 'list' }" @click="radar.mobilePanel = 'list'">목록 {{ jobs.length }}</button>
+      <button role="tab" :aria-selected="radar.mobilePanel === 'detail'" aria-controls="radar-detail" :class="{ active: radar.mobilePanel === 'detail' }" :disabled="!radar.selectedJobId" @click="radar.mobilePanel = 'detail'">상세</button>
     </div>
 
-    <aside class="filter-rail" :class="{ 'mobile-active': radar.mobilePanel === 'filters' }">
+    <aside id="radar-filters" class="filter-rail" aria-label="공고 필터" :class="{ 'mobile-active': radar.mobilePanel === 'filters' }">
       <div class="rail-heading">
         <span>Saved views</span>
-        <small>J/K 이동</small>
+        <small>목록에서 J/K</small>
       </div>
       <nav class="saved-view-list">
         <button
           v-for="view in savedViews"
           :key="view.id"
+          type="button"
+          :aria-pressed="selectedView === view.id"
           :class="{ active: selectedView === view.id }"
           @click="applyView(view.id)"
         >
@@ -233,21 +251,21 @@ function message(error: unknown): string {
         <input v-model.number="filters.minScore" type="range" min="0" max="100" step="5" @input="selectedView = 'custom'" />
       </label>
 
-      <button class="ghost-button full-width" @click="clearAll"><X :size="14" /> 필터 초기화</button>
+      <button type="button" class="ghost-button full-width" @click="clearAll"><X :size="14" /> 필터 초기화</button>
       <div class="rail-footnote">
         <strong>{{ dashboardQuery.data.value?.sources.active ?? 0 }}</strong> active sources
         <span v-if="dashboardQuery.data.value?.sources.quarantined">· {{ dashboardQuery.data.value.sources.quarantined }} quarantined</span>
       </div>
     </aside>
 
-    <section class="job-list-pane" :class="{ 'mobile-active': radar.mobilePanel === 'list' }">
+    <section id="radar-list" class="job-list-pane" aria-label="공고 목록" tabindex="0" :class="{ 'mobile-active': radar.mobilePanel === 'list' }" @keydown="handleListKeydown">
       <header class="list-toolbar">
         <label class="search-box">
           <Search :size="17" />
+          <span class="sr-only">공고 검색</span>
           <input v-model="searchInput" type="search" placeholder="직무, 기업, Three.js, WebGPU…" />
-          <kbd>/</kbd>
         </label>
-        <div class="toolbar-summary">
+        <div class="toolbar-summary" aria-live="polite">
           <strong>{{ jobs.length }}</strong> loaded
           <span v-if="jobsQuery.isFetching.value" class="spinner small" />
         </div>
@@ -262,8 +280,8 @@ function message(error: unknown): string {
       </div>
 
       <div class="job-list-scroll">
-        <div v-if="jobsQuery.isPending.value" class="list-state"><span class="spinner" /> 공고를 불러오는 중…</div>
-        <div v-else-if="jobsQuery.error.value" class="list-state error-state">{{ message(jobsQuery.error.value) }}</div>
+        <div v-if="jobsQuery.isPending.value" class="list-state" role="status"><span class="spinner" /> 공고를 불러오는 중…</div>
+        <div v-else-if="jobsQuery.error.value" class="list-state error-state" role="alert">{{ message(jobsQuery.error.value) }}</div>
         <div v-else-if="jobs.length === 0" class="list-state empty-state">
           <Search :size="28" />
           <strong>조건에 맞는 공고가 없습니다.</strong>
@@ -291,6 +309,7 @@ function message(error: unknown): string {
     </section>
 
     <JobDetailPanel
+      id="radar-detail"
       class="detail-pane-wrap"
       :class="{ 'mobile-active': radar.mobilePanel === 'detail' }"
       :job="detailQuery.data.value || null"

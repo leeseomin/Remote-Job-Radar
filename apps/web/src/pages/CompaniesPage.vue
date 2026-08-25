@@ -7,6 +7,7 @@ import { api, ApiClientError } from "../api/client";
 const queryClient = useQueryClient();
 const showForm = ref(false);
 const formError = ref<string | null>(null);
+const toggleError = ref<string | null>(null);
 const companyForm = reactive({
   name: "",
   slug: "",
@@ -34,8 +35,12 @@ const createMutation = useMutation({
   onError: (error) => { formError.value = message(error); },
 });
 const toggleMutation = useMutation({
-  mutationFn: ({ id, active }: { id: string; active: boolean }) => api.patchCompany(id, { active }),
+  mutationFn: ({ id, active }: { id: string; active: boolean }) => {
+    toggleError.value = null;
+    return api.patchCompany(id, { active });
+  },
   onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["companies"] }),
+  onError: (error) => { toggleError.value = message(error); },
 });
 
 const metrics = computed(() => {
@@ -57,6 +62,11 @@ function syncSlug(): void {
     .replace(/^-+|-+$/g, "");
 }
 
+function toggleCompanyForm(): void {
+  showForm.value = !showForm.value;
+  formError.value = null;
+}
+
 function message(error: unknown): string {
   if (error instanceof ApiClientError) return `${error.message}${error.requestId ? ` · ${error.requestId}` : ""}`;
   return error instanceof Error ? error.message : "알 수 없는 오류";
@@ -71,7 +81,7 @@ function message(error: unknown): string {
         <h1>관심 기업</h1>
         <p>100~250개 관심 기업과 공식 careers/remote policy 링크를 우선순위별로 관리합니다.</p>
       </div>
-      <button class="primary-button" @click="showForm = !showForm">
+      <button type="button" class="primary-button" @click="toggleCompanyForm">
         <X v-if="showForm" :size="16" /><Plus v-else :size="16" />
         {{ showForm ? '닫기' : '기업 추가' }}
       </button>
@@ -94,33 +104,34 @@ function message(error: unknown): string {
         <label class="field-stack"><span>우선순위</span><input v-model.number="companyForm.priority" type="number" min="0" max="100" /></label>
         <div class="field-stack"><span>상태</span><label class="checkbox-field"><input v-model="companyForm.active" type="checkbox" /> 활성</label></div>
       </div>
-      <div v-if="formError" class="form-error">{{ formError }}</div>
+      <div v-if="formError" class="form-error" role="alert">{{ formError }}</div>
       <div class="form-actions"><button class="primary-button" type="submit" :disabled="createMutation.isPending.value"><Save :size="16" /> {{ createMutation.isPending.value ? '저장 중…' : '저장' }}</button></div>
     </form>
 
-    <div v-if="companiesQuery.isPending.value" class="management-state"><span class="spinner" /> 기업을 불러오는 중…</div>
-    <div v-else-if="companiesQuery.error.value" class="management-state error-state">{{ message(companiesQuery.error.value) }}</div>
+    <div v-if="toggleError" class="management-alert" role="alert">{{ toggleError }}</div>
+    <div v-if="companiesQuery.isPending.value" class="management-state" role="status"><span class="spinner" /> 기업을 불러오는 중…</div>
+    <div v-else-if="companiesQuery.error.value" class="management-state error-state" role="alert">{{ message(companiesQuery.error.value) }}</div>
     <div v-else class="company-grid">
       <article v-for="company in companiesQuery.data.value || []" :key="company.id" class="company-card" :class="{ disabled: !company.active }">
         <header>
           <div class="company-avatar">{{ company.name.slice(0, 2).toUpperCase() }}</div>
           <div><h2>{{ company.name }}</h2><code>{{ company.slug }}</code></div>
-          <span class="priority-pill">P{{ company.priority }}</span>
+          <span class="priority-pill" :title="`우선순위 ${company.priority}`">P{{ company.priority }}</span>
         </header>
         <div class="company-metrics">
-          <div><strong>{{ company.source_count }}</strong><span>sources</span></div>
-          <div><strong>{{ company.open_job_count }}</strong><span>open jobs</span></div>
+          <div><strong>{{ company.source_count ?? 0 }}</strong><span>sources</span></div>
+          <div><strong>{{ company.open_job_count ?? 0 }}</strong><span>open jobs</span></div>
         </div>
         <div class="company-links">
-          <a v-if="company.careers_url" :href="company.careers_url" target="_blank" rel="noopener noreferrer">Careers <ExternalLink :size="13" /></a>
-          <a v-if="company.remote_policy_url" :href="company.remote_policy_url" target="_blank" rel="noopener noreferrer">Remote policy <ExternalLink :size="13" /></a>
+          <a v-if="company.careers_url" :href="company.careers_url" target="_blank" rel="noopener noreferrer" :aria-label="`${company.name} 채용 페이지를 새 창에서 열기`">Careers <ExternalLink :size="13" /></a>
+          <a v-if="company.remote_policy_url" :href="company.remote_policy_url" target="_blank" rel="noopener noreferrer" :aria-label="`${company.name} Remote policy를 새 창에서 열기`">Remote policy <ExternalLink :size="13" /></a>
         </div>
         <footer>
           <span :class="company.active ? 'active-dot' : 'paused-dot'">{{ company.active ? 'Active' : 'Paused' }}</span>
-          <button class="small-button" :disabled="toggleMutation.isPending.value" @click="toggleMutation.mutate({ id: company.id, active: !Boolean(company.active) })">{{ company.active ? 'Pause' : 'Enable' }}</button>
+          <button type="button" class="small-button" :disabled="toggleMutation.isPending.value" @click="toggleMutation.mutate({ id: company.id, active: !Boolean(company.active) })">{{ company.active ? '일시정지' : '활성화' }}</button>
         </footer>
       </article>
-      <div v-if="!(companiesQuery.data.value || []).length" class="management-state empty-state"><Building2 :size="28" /> 등록된 기업이 없습니다.</div>
+      <div v-if="!(companiesQuery.data.value || []).length" class="management-state empty-state"><Building2 :size="28" /><strong>등록된 기업이 없습니다.</strong><button type="button" class="primary-button" @click="toggleCompanyForm">첫 기업 추가</button></div>
     </div>
   </section>
 </template>

@@ -4,12 +4,13 @@ import { Radar, Database, Building2, ShieldCheck } from "lucide-vue-next";
 
 <template>
   <div class="app-shell">
+    <a class="skip-link" href="#main-content">본문으로 바로가기</a>
     <header class="topbar">
       <RouterLink class="brand" to="/" aria-label="Remote Job Radar 홈">
         <span class="brand-mark"><Radar :size="19" /></span>
         <span>
           <strong>Remote Job Radar</strong>
-          <small>Private async-first monitor</small>
+          <small>Curated remote opportunities</small>
         </span>
       </RouterLink>
       <nav class="main-nav" aria-label="주요 메뉴">
@@ -21,7 +22,7 @@ import { Radar, Database, Building2, ShieldCheck } from "lucide-vue-next";
         <ShieldCheck :size="15" /> Private
       </div>
     </header>
-    <main class="app-main">
+    <main id="main-content" class="app-main">
       <RouterView />
     </main>
   </div>

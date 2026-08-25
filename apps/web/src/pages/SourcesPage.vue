@@ -19,6 +19,7 @@ import { dateTime, relativeTime } from "../utils/format";
 const queryClient = useQueryClient();
 const showForm = ref(false);
 const formError = ref<string | null>(null);
+const commandError = ref<string | null>(null);
 const sourceForm = reactive({
   companyId: "",
   kind: "greenhouse",
@@ -72,6 +73,7 @@ const createMutation = useMutation({
 
 const commandMutation = useMutation({
   mutationFn: ({ action, id, active }: { action: "test" | "reset" | "toggle"; id: string; active?: boolean }) => {
+    commandError.value = null;
     if (action === "test") return api.testSource(id);
     if (action === "reset") return api.resetSource(id);
     return api.patchSource(id, { active });
@@ -79,6 +81,7 @@ const commandMutation = useMutation({
   onSuccess: async () => {
     await queryClient.invalidateQueries({ queryKey: ["sources"] });
   },
+  onError: (error) => { commandError.value = message(error); },
 });
 
 const stats = computed(() => {
@@ -95,6 +98,11 @@ function isStale(nextDueAt: number): boolean {
   return Math.floor(Date.now() / 1_000) - nextDueAt > 12 * 3_600;
 }
 
+function toggleSourceForm(): void {
+  showForm.value = !showForm.value;
+  formError.value = null;
+}
+
 function message(error: unknown): string {
   if (error instanceof ApiClientError) return `${error.message}${error.requestId ? ` · ${error.requestId}` : ""}`;
   return error instanceof Error ? error.message : "알 수 없는 오류";
@@ -109,7 +117,7 @@ function message(error: unknown): string {
         <h1>수집 소스</h1>
         <p>공식 ATS·공개 채용 페이지를 등록하고 수집 상태와 파서 오류를 관리합니다.</p>
       </div>
-      <button class="primary-button" @click="showForm = !showForm">
+      <button type="button" class="primary-button" @click="toggleSourceForm">
         <X v-if="showForm" :size="16" />
         <Plus v-else :size="16" />
         {{ showForm ? '닫기' : '소스 추가' }}
@@ -167,7 +175,7 @@ function message(error: unknown): string {
         <label><input :checked="sourceForm.kind === 'playwright'" type="checkbox" disabled /> Playwright adapter는 브라우저 러너 사용</label>
         <label><input v-model="sourceForm.active" type="checkbox" /> 즉시 활성화</label>
       </div>
-      <div v-if="formError" class="form-error">{{ formError }}</div>
+      <div v-if="formError" class="form-error" role="alert">{{ formError }}</div>
       <div class="form-actions">
         <button class="primary-button" type="submit" :disabled="createMutation.isPending.value || !companiesQuery.data.value?.length">
           <Save :size="16" /> {{ createMutation.isPending.value ? '저장 중…' : '저장' }}
@@ -175,56 +183,60 @@ function message(error: unknown): string {
       </div>
     </form>
 
-    <div v-if="sourcesQuery.isPending.value" class="management-state"><span class="spinner" /> 소스를 불러오는 중…</div>
-    <div v-else-if="sourcesQuery.error.value" class="management-state error-state">{{ message(sourcesQuery.error.value) }}</div>
+    <div v-if="commandError" class="management-alert" role="alert">{{ commandError }}</div>
+    <div v-if="sourcesQuery.isPending.value" class="management-state" role="status"><span class="spinner" /> 소스를 불러오는 중…</div>
+    <div v-else-if="sourcesQuery.error.value" class="management-state error-state" role="alert">{{ message(sourcesQuery.error.value) }}</div>
     <div v-else class="source-table-wrap">
       <table class="data-table source-table">
+        <caption class="sr-only">등록된 수집 소스와 실행 상태</caption>
         <thead>
           <tr>
-            <th>기업 / Adapter</th>
-            <th>상태</th>
-            <th>최근 결과</th>
-            <th>공고 수</th>
-            <th>다음 실행</th>
-            <th class="right">작업</th>
+            <th scope="col">기업 / Adapter</th>
+            <th scope="col">상태</th>
+            <th scope="col">최근 결과</th>
+            <th scope="col">공고 수</th>
+            <th scope="col">다음 실행</th>
+            <th scope="col" class="right">작업</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="source in sourcesQuery.data.value || []" :key="source.id" :class="{ stale: isStale(source.next_due_at), disabled: !source.company_active }">
-            <td>
+            <td data-label="기업 / Adapter">
               <div class="table-primary">{{ source.company_name }}</div>
               <div class="table-secondary"><code>{{ source.kind }}</code><span>{{ source.adapter_key || 'URL mode' }}</span></div>
-              <a :href="source.url" target="_blank" rel="noopener noreferrer" class="table-link">{{ source.url }} <ExternalLink :size="12" /></a>
+              <a :href="source.url" target="_blank" rel="noopener noreferrer" class="table-link" :aria-label="`${source.company_name} 채용 페이지를 새 창에서 열기`">{{ source.url }} <ExternalLink :size="12" /></a>
             </td>
-            <td>
+            <td data-label="상태">
               <SourceStatusBadge :status="source.status" :failures="source.consecutive_failures" />
-              <div v-if="!source.company_active" class="stale-label">company paused</div>
-              <div v-else-if="isStale(source.next_due_at)" class="stale-label">stale</div>
+              <div v-if="!source.company_active" class="stale-label">기업 일시정지</div>
+              <div v-else-if="isStale(source.next_due_at)" class="stale-label">실행 지연</div>
             </td>
-            <td>
+            <td data-label="최근 결과">
               <div class="table-primary">{{ source.last_http_status ? `HTTP ${source.last_http_status}` : '실행 전' }}</div>
               <div class="table-secondary">{{ source.last_success_at ? relativeTime(source.last_success_at) : '성공 기록 없음' }}</div>
               <div v-if="source.last_error_code" class="error-copy" :title="source.last_error_message || ''">{{ source.last_error_code }}</div>
             </td>
-            <td>
+            <td data-label="공고 수">
               <div class="table-primary">{{ source.previous_job_count }}</div>
-              <div class="table-secondary">previous healthy run</div>
+              <div class="table-secondary">최근 정상 수집 기준</div>
             </td>
-            <td>
+            <td data-label="다음 실행">
               <div class="table-primary">{{ relativeTime(source.next_due_at) }}</div>
               <div class="table-secondary">{{ dateTime(source.next_due_at) }}</div>
             </td>
-            <td class="right actions-cell">
-              <button class="icon-button" title="다음 크롤러에서 테스트" :disabled="commandMutation.isPending.value" @click="commandMutation.mutate({ action: 'test', id: source.id })"><CirclePlay :size="15" /></button>
-              <button v-if="source.status === 'quarantined'" class="icon-button" title="상태 초기화" :disabled="commandMutation.isPending.value" @click="commandMutation.mutate({ action: 'reset', id: source.id })"><RefreshCw :size="15" /></button>
-              <button class="small-button" :disabled="commandMutation.isPending.value" @click="commandMutation.mutate({ action: 'toggle', id: source.id, active: source.status !== 'active' })">
-                {{ source.status === 'active' ? 'Pause' : 'Enable' }}
-              </button>
+            <td class="right actions-cell" data-label="작업">
+              <div class="row-actions">
+                <button type="button" class="icon-button" title="다음 크롤러에서 테스트" aria-label="다음 크롤러 실행에서 소스 테스트" :disabled="commandMutation.isPending.value" @click="commandMutation.mutate({ action: 'test', id: source.id })"><CirclePlay :size="15" /></button>
+                <button v-if="source.status === 'quarantined'" type="button" class="icon-button" title="상태 초기화" aria-label="격리 상태 초기화" :disabled="commandMutation.isPending.value" @click="commandMutation.mutate({ action: 'reset', id: source.id })"><RefreshCw :size="15" /></button>
+                <button type="button" class="small-button" :disabled="commandMutation.isPending.value" @click="commandMutation.mutate({ action: 'toggle', id: source.id, active: source.status !== 'active' })">
+                  {{ source.status === 'active' ? '일시정지' : '활성화' }}
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
       </table>
-      <div v-if="!(sourcesQuery.data.value || []).length" class="management-state empty-state"><Activity :size="28" /> 등록된 수집 소스가 없습니다.</div>
+      <div v-if="!(sourcesQuery.data.value || []).length" class="management-state empty-state"><Activity :size="28" /><strong>등록된 수집 소스가 없습니다.</strong><button type="button" class="primary-button" @click="toggleSourceForm">첫 소스 추가</button></div>
     </div>
   </section>
 </template>

@@ -9,7 +9,7 @@ defineEmits<{ select: [id: string] }>();
 </script>
 
 <template>
-  <button class="job-card" :class="{ selected }" type="button" @click="$emit('select', job.id)">
+  <button class="job-card" :class="{ selected }" type="button" :data-job-id="job.id" :aria-pressed="selected" @click="$emit('select', job.id)">
     <div class="job-card-top">
       <div class="job-card-heading">
         <span class="company-name">{{ job.company_name }}</span>
