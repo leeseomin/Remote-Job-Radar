@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const initialMigration = new URL("../migrations/0001_initial.sql", import.meta.url);
 const ftsMigration = new URL("../migrations/0002_fts_and_retention.sql", import.meta.url);
+const fingerprintMigration = new URL("../migrations/0003_source_content_fingerprint.sql", import.meta.url);
 
 function totalChanges(db: DatabaseSync): number {
   const row = db.prepare("SELECT total_changes() AS changes").get() as { changes: number };
@@ -11,6 +12,48 @@ function totalChanges(db: DatabaseSync): number {
 }
 
 describe("guarded jobs FTS update trigger", () => {
+  it("adds nullable fingerprint snapshot metadata without changing existing sources", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(readFileSync(initialMigration, "utf8"));
+      db.exec(readFileSync(ftsMigration, "utf8"));
+      db.exec(`
+        INSERT INTO companies (id, slug, name, created_at, updated_at)
+        VALUES ('company_test', 'test', 'Test Company', 1, 1);
+        INSERT INTO sources (id, company_id, kind, url, next_due_at, created_at, updated_at)
+        VALUES ('source_test', 'company_test', 'greenhouse', 'https://example.com/jobs', 1, 1, 1);
+      `);
+
+      db.exec(readFileSync(fingerprintMigration, "utf8"));
+      const migrated = db.prepare(`SELECT id, content_fingerprint, snapshot_run_id
+        FROM sources WHERE id = 'source_test'`).get() as {
+          id: string;
+          content_fingerprint: string | null;
+          snapshot_run_id: string | null;
+        };
+      expect({ ...migrated }).toEqual({
+        id: "source_test",
+        content_fingerprint: null,
+        snapshot_run_id: null,
+      });
+
+      const fingerprint = "a".repeat(64);
+      db.prepare(`UPDATE sources SET content_fingerprint = ?, snapshot_run_id = ? WHERE id = ?`)
+        .run(fingerprint, "run_full_1", "source_test");
+      const stored = db.prepare(`SELECT content_fingerprint, snapshot_run_id
+        FROM sources WHERE id = 'source_test'`).get() as {
+          content_fingerprint: string;
+          snapshot_run_id: string;
+        };
+      expect({ ...stored }).toEqual({
+        content_fingerprint: fingerprint,
+        snapshot_run_id: "run_full_1",
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it("does not rewrite FTS for presence-only or unchanged-content updates", () => {
     const db = new DatabaseSync(":memory:");
     try {

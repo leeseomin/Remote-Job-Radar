@@ -10,6 +10,8 @@ export interface CrawlSource {
   config: SourceConfig;
   etag: string | null;
   lastModified: string | null;
+  contentFingerprint: string | null;
+  snapshotRunId: string | null;
   previousJobCount: number;
   browserRequired: boolean;
 }

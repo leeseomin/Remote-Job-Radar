@@ -74,6 +74,7 @@ async function completeRun(c: Context<AppEnv>) {
 
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE sources SET
+      etag = NULL, last_modified = NULL, content_fingerprint = NULL, snapshot_run_id = NULL,
       consecutive_failures = consecutive_failures + 1,
       last_failure_at = ?, next_due_at = ? + MAX(crawl_interval_minutes, 720) * 60,
       lease_owner = NULL, lease_until = NULL,

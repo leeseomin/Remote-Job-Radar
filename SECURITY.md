@@ -2,7 +2,7 @@
 
 ## 보호 경계
 
-운영 배포에서는 반드시 Cloudflare Access로 전체 도메인을 보호하고, `/api/internal/*`에는 별도의 Service Auth 정책을 적용하십시오. `workers.dev` 주소는 비활성화합니다.
+운영 배포에서는 반드시 Cloudflare Access로 `workers.dev` 전체 호스트를 보호하고, `/api/internal/*`에는 별도의 Service Auth 정책을 적용하십시오. Preview URL을 활성화한다면 동일하게 Access로 보호하며, 이후 Custom Domain을 추가할 때도 사용하지 않는 공개 route를 남기지 않습니다.
 
 ## Secret
 

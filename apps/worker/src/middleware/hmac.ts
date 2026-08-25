@@ -10,7 +10,7 @@ import {
 import { ApiError } from "../lib/errors";
 import { unixNow } from "../lib/db";
 
-const MAX_BODY_BYTES = 512 * 1024;
+const MAX_BODY_BYTES = 256 * 1024;
 const MAX_CLOCK_SKEW_SECONDS = 300;
 
 export const signedBodyMiddleware = createMiddleware<AppEnv>(async (c, next) => {
@@ -21,12 +21,12 @@ export const signedBodyMiddleware = createMiddleware<AppEnv>(async (c, next) => 
 
   const lengthHeader = Number(c.req.header("Content-Length") ?? 0);
   if (Number.isFinite(lengthHeader) && lengthHeader > MAX_BODY_BYTES) {
-    throw new ApiError(413, "BODY_TOO_LARGE", "요청 본문은 512KB를 넘을 수 없습니다.");
+    throw new ApiError(413, "BODY_TOO_LARGE", "요청 본문은 256KB를 넘을 수 없습니다.");
   }
 
   const bytes = new Uint8Array(await c.req.raw.arrayBuffer());
   if (bytes.byteLength > MAX_BODY_BYTES) {
-    throw new ApiError(413, "BODY_TOO_LARGE", "요청 본문은 512KB를 넘을 수 없습니다.");
+    throw new ApiError(413, "BODY_TOO_LARGE", "요청 본문은 256KB를 넘을 수 없습니다.");
   }
 
   const timestamp = c.req.header("X-Timestamp") ?? "";

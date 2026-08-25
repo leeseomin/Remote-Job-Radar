@@ -27,6 +27,8 @@ export const sources = sqliteTable("sources", {
   crawlIntervalMinutes: integer("crawl_interval_minutes").notNull().default(720),
   etag: text("etag"),
   lastModified: text("last_modified"),
+  contentFingerprint: text("content_fingerprint"),
+  snapshotRunId: text("snapshot_run_id"),
   previousJobCount: integer("previous_job_count").notNull().default(0),
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
   lastSuccessAt: integer("last_success_at"),

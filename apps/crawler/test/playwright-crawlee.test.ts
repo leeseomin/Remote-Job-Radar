@@ -37,6 +37,8 @@ function source(id: string): CrawlSource {
     },
     etag: null,
     lastModified: null,
+    contentFingerprint: null,
+    snapshotRunId: null,
     previousJobCount: 0,
     browserRequired: true,
   };

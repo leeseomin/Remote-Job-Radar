@@ -9,7 +9,7 @@ export const ingestPayloadSchema = z.object({
   sequence: z.number().int().min(1),
   totalBatches: z.number().int().min(1).max(10_000),
   fetchedAt: z.number().int().positive(),
-  jobs: z.array(normalizedJobSchema).max(20),
+  jobs: z.array(normalizedJobSchema).max(10),
 });
 
 export const sourceCompleteSchema = z.object({
@@ -22,6 +22,7 @@ export const sourceCompleteSchema = z.object({
   receivedBatchCount: z.number().int().min(0),
   expectedBatchCount: z.number().int().min(0),
   responseHash: z.string().max(128).nullable(),
+  contentFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().default(null),
   etag: z.string().max(1_000).nullable(),
   lastModified: z.string().max(1_000).nullable(),
   errorCode: z.string().max(100).nullable().optional(),

@@ -1,7 +1,8 @@
 import type { IngestPayload, NormalizedJob } from "@remote-job-radar/contracts";
 
-const MAX_BODY_BYTES = 512 * 1024;
+const MAX_BODY_BYTES = 256 * 1024;
 const SAFE_BODY_BYTES = MAX_BODY_BYTES - 2_048;
+const MAX_JOBS_PER_BATCH = 10;
 
 function bodySize(payload: IngestPayload): number {
   return Buffer.byteLength(JSON.stringify(payload), "utf8");
@@ -28,7 +29,7 @@ export function createIngestBatches(
 
   for (const job of jobs) {
     const candidate = [...current, job];
-    if (candidate.length > 20 || bodySize(provisionalPayload(candidate)) > SAFE_BODY_BYTES) {
+    if (candidate.length > MAX_JOBS_PER_BATCH || bodySize(provisionalPayload(candidate)) > SAFE_BODY_BYTES) {
       if (current.length === 0 || bodySize(provisionalPayload([job])) > SAFE_BODY_BYTES) {
         throw new Error(`Single normalized job exceeds ingest body limit: ${job.title}`);
       }

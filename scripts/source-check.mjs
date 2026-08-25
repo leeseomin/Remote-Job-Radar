@@ -8,6 +8,7 @@ const requiredFiles = [
   "SECURITY.md",
   "docs/DEPLOY_KO.md",
   "docs/REFERENCE_DESIGN_KO.md",
+  "apps/web/public/_headers",
   "apps/web/src/App.vue",
   "apps/web/src/pages/RadarPage.vue",
   "apps/web/src/pages/SourcesPage.vue",
@@ -30,6 +31,7 @@ const requiredFiles = [
   "packages/domain/test/classify.test.ts",
   "packages/db/migrations/0001_initial.sql",
   "packages/db/migrations/0002_fts_and_retention.sql",
+  "packages/db/migrations/0003_source_content_fingerprint.sql",
   "packages/db/seed/demo.sql",
   ".github/workflows/test.yml",
   ".github/workflows/crawl-fast.yml",
@@ -74,6 +76,16 @@ for (const token of [
   "crawl_interval_minutes = 720",
 ]) {
   if (!optimizationMigration.includes(token)) throw new Error(`Optimization migration is missing ${token}`);
+}
+
+const fingerprintMigration = await readFile(resolve("packages/db/migrations/0003_source_content_fingerprint.sql"), "utf8");
+for (const token of ["content_fingerprint", "snapshot_run_id"]) {
+  if (!fingerprintMigration.includes(token)) throw new Error(`Fingerprint migration is missing ${token}`);
+}
+
+const staticHeaders = await readFile(resolve("apps/web/public/_headers"), "utf8");
+for (const token of ["Content-Security-Policy", "X-Content-Type-Options", "X-Robots-Tag"]) {
+  if (!staticHeaders.includes(token)) throw new Error(`Static asset headers are missing ${token}`);
 }
 
 const ingest = await readFile(resolve("apps/worker/src/routes/internal/ingest.ts"), "utf8");

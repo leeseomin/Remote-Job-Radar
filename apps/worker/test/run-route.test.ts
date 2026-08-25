@@ -66,6 +66,10 @@ describe("run finalization retry transition", () => {
       query.sql.includes("UPDATE sources SET") && query.sql.includes("lease_owner"));
     expect(sourceUpdate?.sql).toContain("status = 'active'");
     expect(sourceUpdate?.sql).toContain("MAX(crawl_interval_minutes, 720)");
+    expect(sourceUpdate?.sql).toContain("etag = NULL");
+    expect(sourceUpdate?.sql).toContain("last_modified = NULL");
+    expect(sourceUpdate?.sql).toContain("content_fingerprint = NULL");
+    expect(sourceUpdate?.sql).toContain("snapshot_run_id = NULL");
     expect(sourceUpdate?.sql).not.toContain("status = 'quarantined'");
   });
 });

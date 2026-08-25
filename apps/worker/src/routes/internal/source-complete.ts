@@ -10,6 +10,8 @@ interface SourceState {
   id: string;
   crawl_interval_minutes: number;
   previous_job_count: number;
+  content_fingerprint: string | null;
+  snapshot_run_id: string | null;
   lease_owner: string | null;
   source_run_status: string | null;
   source_run_completed_at: number | null;
@@ -30,6 +32,7 @@ sourceCompleteRoutes.post("/source-complete", async (c) => {
   }
   const payload = parsed.data;
   const state = await c.env.DB.prepare(`SELECT s.id, s.crawl_interval_minutes, s.previous_job_count,
+      s.content_fingerprint, s.snapshot_run_id,
       s.lease_owner, sr.status AS source_run_status, sr.completed_at AS source_run_completed_at
     FROM sources s
     LEFT JOIN source_runs sr ON sr.run_id = ? AND sr.source_id = s.id
@@ -57,19 +60,42 @@ sourceCompleteRoutes.post("/source-complete", async (c) => {
     .bind(payload.runId, payload.sourceId)
     .first<{ count: number }>();
   const storedBatches = Number(batchCount?.count ?? 0);
-  const disposition = classifySourceCompletion(payload, storedBatches);
+  const classifiedDisposition = classifySourceCompletion(payload, storedBatches);
+  const invalidNotModifiedSnapshot = payload.status === "not_modified" && (
+    classifiedDisposition.kind !== "complete" ||
+    state.snapshot_run_id === null ||
+    state.content_fingerprint === null ||
+    payload.contentFingerprint !== state.content_fingerprint
+  );
+  const disposition = invalidNotModifiedSnapshot && classifiedDisposition.kind === "complete"
+    ? { kind: "retry" as const, reason: "not-modified-snapshot-mismatch" }
+    : classifiedDisposition;
+  const invalidateSnapshotSql = storedBatches > 0 || invalidNotModifiedSnapshot
+    ? `etag = NULL, last_modified = NULL, content_fingerprint = NULL, snapshot_run_id = NULL,`
+    : "";
   const now = unixNow();
   const nextDueAt = now + Number(state.crawl_interval_minutes) * 60;
   const sourceRunId = `${payload.runId}:${payload.sourceId}`;
 
   if (payload.status === "not_modified" && disposition.kind === "complete") {
-    await c.env.DB.batch([
+    const results = await c.env.DB.batch([
+      c.env.DB.prepare(`UPDATE jobs SET
+        missing_count = missing_count + 1,
+        status = CASE WHEN missing_count + 1 >= 2 THEN 'closed' ELSE status END,
+        closed_at = CASE WHEN missing_count + 1 >= 2 THEN ? ELSE closed_at END,
+        updated_at = ?
+        WHERE source_id = ? AND status = 'open'
+          AND ? IS NOT NULL
+          AND (last_seen_run_id IS NULL OR last_seen_run_id <> ?)`)
+        .bind(now, now, payload.sourceId, state.snapshot_run_id, state.snapshot_run_id),
       c.env.DB.prepare(`UPDATE sources SET
         etag = COALESCE(?, etag), last_modified = COALESCE(?, last_modified),
+        content_fingerprint = COALESCE(?, content_fingerprint),
         last_success_at = ?, consecutive_failures = 0, next_due_at = ?,
         lease_owner = NULL, lease_until = NULL, status = 'active', updated_at = ?
         WHERE id = ?`)
-        .bind(payload.etag, payload.lastModified, now, nextDueAt, now, payload.sourceId),
+        .bind(payload.etag, payload.lastModified, payload.contentFingerprint,
+          now, nextDueAt, now, payload.sourceId),
       c.env.DB.prepare(`INSERT INTO source_runs
         (id, run_id, source_id, status, http_status, fetched_job_count, previous_job_count,
          response_hash, started_at, completed_at)
@@ -83,7 +109,12 @@ sourceCompleteRoutes.post("/source-complete", async (c) => {
       c.env.DB.prepare(`UPDATE crawl_runs SET completed_source_count = completed_source_count + 1 WHERE id = ?`)
         .bind(payload.runId),
     ]);
-    return jsonOk(c, { sourceId: payload.sourceId, status: "not_modified", jobsClosed: 0, nextDueAt });
+    return jsonOk(c, {
+      sourceId: payload.sourceId,
+      status: "not_modified",
+      affectedMissingJobs: results[0]?.meta.changes ?? 0,
+      nextDueAt,
+    });
   }
 
   if (disposition.kind === "complete" && payload.status === "healthy") {
@@ -98,10 +129,12 @@ sourceCompleteRoutes.post("/source-complete", async (c) => {
         .bind(now, now, payload.sourceId, payload.runId),
       c.env.DB.prepare(`UPDATE sources SET
         etag = COALESCE(?, etag), last_modified = COALESCE(?, last_modified),
+        content_fingerprint = COALESCE(?, content_fingerprint), snapshot_run_id = ?,
         previous_job_count = ?, last_success_at = ?, consecutive_failures = 0,
         next_due_at = ?, lease_owner = NULL, lease_until = NULL,
         status = 'active', updated_at = ? WHERE id = ?`)
-        .bind(payload.etag, payload.lastModified, payload.fetchedJobCount, now, nextDueAt, now, payload.sourceId),
+        .bind(payload.etag, payload.lastModified, payload.contentFingerprint, payload.runId,
+          payload.fetchedJobCount, now, nextDueAt, now, payload.sourceId),
       c.env.DB.prepare(`INSERT INTO source_runs
         (id, run_id, source_id, status, http_status, fetched_job_count, previous_job_count,
          response_hash, started_at, completed_at)
@@ -127,8 +160,12 @@ sourceCompleteRoutes.post("/source-complete", async (c) => {
   const retryMinutes = Math.max(Number(state.crawl_interval_minutes), 720);
   const retryAt = now + retryMinutes * 60;
   if (disposition.kind === "retry") {
+    // A failed run may have committed only some batches, and an inconsistent
+    // not-modified report does not prove that D1 matches its fingerprint. Clear
+    // untrusted snapshot metadata so the next crawl performs a complete ingest.
     await c.env.DB.batch([
       c.env.DB.prepare(`UPDATE sources SET
+        ${invalidateSnapshotSql}
         consecutive_failures = consecutive_failures + 1,
         last_failure_at = ?, next_due_at = ?, lease_owner = NULL, lease_until = NULL,
         status = 'active', updated_at = ? WHERE id = ?`)
@@ -163,6 +200,7 @@ sourceCompleteRoutes.post("/source-complete", async (c) => {
   const reason = disposition.reason;
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE sources SET
+      ${invalidateSnapshotSql}
       consecutive_failures = consecutive_failures + 1,
       last_failure_at = ?, next_due_at = ?, lease_owner = NULL, lease_until = NULL,
       status = 'quarantined', updated_at = ? WHERE id = ?`)

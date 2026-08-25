@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { sourceInputSchema, type SourceInput } from "@remote-job-radar/contracts";
+import { stableStringify } from "@remote-job-radar/shared";
 import type { AppEnv } from "../env";
 import { parseJson, unixNow } from "../lib/db";
 import { ApiError } from "../lib/errors";
@@ -71,24 +72,29 @@ sourcesRoutes.post("/", async (c) => {
 });
 
 sourcesRoutes.patch("/:id", async (c) => {
-  const patch = sourceInputSchema.partial().safeParse(await c.req.json().catch(() => null));
+  const rawPatch = await c.req.json().catch(() => null);
+  const patch = sourceInputSchema.partial().safeParse(rawPatch);
   if (!patch.success) throw new ApiError(422, "INVALID_SOURCE", "소스 입력이 올바르지 않습니다.", patch.error.flatten());
+  const provided = (key: keyof SourceInput): boolean =>
+    typeof rawPatch === "object" && rawPatch !== null && Object.prototype.hasOwnProperty.call(rawPatch, key);
   const current = await c.env.DB.prepare("SELECT * FROM sources WHERE id = ?")
     .bind(c.req.param("id"))
     .first<Record<string, unknown>>();
   if (!current) throw new ApiError(404, "SOURCE_NOT_FOUND", "소스를 찾을 수 없습니다.");
 
-  const kindChanged = patch.data.kind !== undefined && patch.data.kind !== current.kind;
+  const kindChanged = provided("kind") && patch.data.kind !== current.kind;
   const candidate = sourceInputSchema.safeParse({
     companyId: patch.data.companyId ?? current.company_id,
     kind: patch.data.kind ?? current.kind,
     url: patch.data.url ?? current.url,
-    adapterKey: patch.data.adapterKey === undefined ? current.adapter_key : patch.data.adapterKey,
-    config: patch.data.config ?? parseJson(current.config_json, {}),
-    browserRequired: patch.data.browserRequired ??
+    adapterKey: provided("adapterKey") ? patch.data.adapterKey : current.adapter_key,
+    config: provided("config") ? patch.data.config : parseJson(current.config_json, {}),
+    browserRequired: provided("browserRequired") ? patch.data.browserRequired :
       (kindChanged ? patch.data.kind === "playwright" : Boolean(current.browser_required)),
-    crawlIntervalMinutes: patch.data.crawlIntervalMinutes ?? current.crawl_interval_minutes,
-    active: patch.data.active ?? current.status === "active",
+    crawlIntervalMinutes: provided("crawlIntervalMinutes")
+      ? patch.data.crawlIntervalMinutes
+      : current.crawl_interval_minutes,
+    active: provided("active") ? patch.data.active : current.status === "active",
   });
   if (!candidate.success) {
     throw new ApiError(422, "INVALID_SOURCE", "변경 후 소스 구성이 올바르지 않습니다.", candidate.error.flatten());
@@ -98,23 +104,38 @@ sourcesRoutes.patch("/:id", async (c) => {
 
   const now = unixNow();
   const nextBrowserRequired = candidate.data.kind === "playwright" ? 1 : 0;
-  const nextStatus = patch.data.active === undefined
-    ? String(current.status)
-    : patch.data.active ? "active" : "paused";
+  const nextStatus = provided("active")
+    ? patch.data.active ? "active" : "paused"
+    : String(current.status);
+  const nextAdapterKey = candidate.data.adapterKey?.trim() || null;
+  const identityChanged = candidate.data.companyId !== current.company_id
+    || candidate.data.kind !== current.kind
+    || candidate.data.url !== current.url
+    || nextAdapterKey !== current.adapter_key
+    || stableStringify(candidate.data.config) !== stableStringify(parseJson(current.config_json, {}));
+  const resetSnapshotSql = identityChanged
+    ? `etag = NULL, last_modified = NULL, content_fingerprint = NULL, snapshot_run_id = NULL,
+      previous_job_count = 0,`
+    : "";
+  const releaseLeaseSql = identityChanged || (provided("active") && patch.data.active === false)
+    ? `lease_owner = NULL, lease_until = NULL,`
+    : "";
   await c.env.DB.prepare(`UPDATE sources SET
       company_id = ?, kind = ?, url = ?, adapter_key = ?, config_json = ?, browser_required = ?,
+      ${resetSnapshotSql}
+      ${releaseLeaseSql}
       crawl_interval_minutes = ?, status = ?, next_due_at = ?, updated_at = ?
       WHERE id = ?`)
     .bind(
       candidate.data.companyId,
       candidate.data.kind,
       candidate.data.url,
-      candidate.data.adapterKey?.trim() || null,
+      nextAdapterKey,
       JSON.stringify(candidate.data.config),
       nextBrowserRequired,
       candidate.data.crawlIntervalMinutes,
       nextStatus,
-      patch.data.active === true ? now : current.next_due_at,
+      (provided("active") && patch.data.active === true) || identityChanged ? now : current.next_due_at,
       now,
       c.req.param("id"),
     )

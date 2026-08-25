@@ -14,6 +14,8 @@ interface PlannedSourceRow extends Record<string, unknown> {
   config_json: string;
   etag: string | null;
   last_modified: string | null;
+  content_fingerprint: string | null;
+  snapshot_run_id: string | null;
   previous_job_count: number;
   browser_required: number;
 }
@@ -39,6 +41,16 @@ crawlPlanRoutes.get("/crawl-plan", async (c) => {
   const triggerType = c.req.header("X-GitHub-Event") ?? "manual";
   const browserRequired = runner === "browser" ? 1 : 0;
 
+  // An expired lease means the previous crawler stopped before source-complete
+  // could prove that every batch was committed. Force a full response/ingest
+  // before the source is leased again so a partial snapshot cannot be reused.
+  await c.env.DB.prepare(`UPDATE sources SET
+      etag = NULL, last_modified = NULL, content_fingerprint = NULL, snapshot_run_id = NULL,
+      lease_owner = NULL, lease_until = NULL, updated_at = ?
+    WHERE lease_owner IS NOT NULL AND (lease_until IS NULL OR lease_until < ?)`)
+    .bind(now, now)
+    .run();
+
   await c.env.DB.prepare(`INSERT OR IGNORE INTO crawl_runs
     (id, runner_type, trigger_type, github_run_id, started_at, status)
     VALUES (?, ?, ?, ?, ?, 'running')`)
@@ -62,7 +74,8 @@ crawlPlanRoutes.get("/crawl-plan", async (c) => {
 
   const planned = await c.env.DB.prepare(`SELECT
       s.id, s.company_id, c.name AS company_name, s.kind, s.url, s.adapter_key,
-      s.config_json, s.etag, s.last_modified, s.previous_job_count, s.browser_required
+      s.config_json, s.etag, s.last_modified, s.content_fingerprint, s.snapshot_run_id,
+      s.previous_job_count, s.browser_required
     FROM sources s JOIN companies c ON c.id = s.company_id
     WHERE s.lease_owner = ?
     ORDER BY c.priority DESC, s.next_due_at ASC, s.id ASC`)
@@ -84,8 +97,13 @@ crawlPlanRoutes.get("/crawl-plan", async (c) => {
     url: row.url,
     adapterKey: row.adapter_key,
     config: parseJson(row.config_json, {}),
-    etag: row.etag,
-    lastModified: row.last_modified,
+    // A migrated source has no known full snapshot yet. Suppressing validators
+    // forces one full response so snapshot_run_id and content_fingerprint can
+    // be initialized instead of receiving HTTP 304 forever.
+    etag: row.snapshot_run_id && row.content_fingerprint ? row.etag : null,
+    lastModified: row.snapshot_run_id && row.content_fingerprint ? row.last_modified : null,
+    contentFingerprint: row.content_fingerprint,
+    snapshotRunId: row.snapshot_run_id,
     previousJobCount: Number(row.previous_job_count ?? 0),
     browserRequired: Boolean(row.browser_required),
   }));

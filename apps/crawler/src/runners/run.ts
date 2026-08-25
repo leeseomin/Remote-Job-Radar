@@ -6,6 +6,7 @@ import { writeJsonArtifact } from "../artifacts";
 import { getAdapter } from "../adapters";
 import { PlaywrightAdapter, type BrowserCollectionResult } from "../adapters/playwright";
 import { SafeHttpClient } from "../fetch/http-client";
+import { canReuseContentSnapshot, createContentFingerprint } from "../normalize/content-fingerprint";
 import { normalizeRawJob } from "../normalize/normalize-job";
 import { RadarApiClient } from "../transport/api-client";
 import { createIngestBatches } from "../transport/batches";
@@ -66,7 +67,7 @@ function boundedHeader(value: string | null): string | null {
   return value ? value.slice(0, 1_000) : null;
 }
 
-async function processSource(
+export async function processSource(
   source: CrawlSource,
   runId: string,
   api: RadarApiClient,
@@ -99,6 +100,7 @@ async function processSource(
         responseHash: output.responseHash,
         etag: boundedHeader(output.etag),
         lastModified: boundedHeader(output.lastModified),
+        contentFingerprint: source.contentFingerprint,
         signals: [],
       };
       await api.postSourceComplete(payload);
@@ -121,14 +123,27 @@ async function processSource(
     // even though the Worker ultimately stores a single row.
     const deduped = [...new Map(normalized.map((job) => [job.externalId, job])).values()];
     const anomaly = severeSignal(signals) ?? countDropReason(source, deduped.length);
-    const batches = anomaly ? [] : createIngestBatches(runId, source.id, deduped, fetchedAt);
+    const contentFingerprint = createContentFingerprint(deduped);
+    const unchangedSnapshot = canReuseContentSnapshot(
+      source.contentFingerprint,
+      source.snapshotRunId,
+      contentFingerprint,
+      anomaly,
+    );
+    const batches = anomaly || unchangedSnapshot
+      ? []
+      : createIngestBatches(runId, source.id, deduped, fetchedAt);
     expectedBatches = batches.length;
     for (const batch of batches) {
       await api.postIngest(batch);
       sentBatches += 1;
     }
 
-    const status: SourceCompletePayload["status"] = anomaly ? "quarantined" : "healthy";
+    const status: SourceCompletePayload["status"] = anomaly
+      ? "quarantined"
+      : unchangedSnapshot
+        ? "not_modified"
+        : "healthy";
     await api.postSourceComplete({
       runId,
       sourceId: source.id,
@@ -141,6 +156,7 @@ async function processSource(
       responseHash: output.responseHash,
       etag: boundedHeader(output.etag),
       lastModified: boundedHeader(output.lastModified),
+      contentFingerprint: anomaly ? null : contentFingerprint,
       errorCode: anomaly,
       errorMessage: anomaly ? `Source quarantined: ${anomaly}` : null,
       signals: limitSignals(signals),
@@ -148,7 +164,7 @@ async function processSource(
 
     return {
       sourceId: source.id,
-      status: anomaly ? "quarantined" : "healthy",
+      status,
       jobCount: deduped.length,
       batchCount: sentBatches,
       ...(anomaly ? { reason: anomaly } : {}),
@@ -182,6 +198,7 @@ async function processSource(
         responseHash: output?.responseHash ?? null,
         etag: boundedHeader(output?.etag ?? null),
         lastModified: boundedHeader(output?.lastModified ?? null),
+        contentFingerprint: null,
         errorCode: "crawler-error",
         errorMessage: message.slice(0, 2_000),
         signals: limitSignals(output?.signals ?? []),

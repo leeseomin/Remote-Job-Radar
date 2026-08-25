@@ -15,6 +15,7 @@ function payload(overrides: Partial<SourceCompletePayload> = {}): SourceComplete
     responseHash: "hash",
     etag: null,
     lastModified: null,
+    contentFingerprint: "a".repeat(64),
     errorCode: null,
     errorMessage: null,
     signals: [],
@@ -129,6 +130,17 @@ describe("classifySourceCompletion", () => {
     expect(classifySourceCompletion(payload({ receivedBatchCount: 0 }), 0)).toEqual({
       kind: "retry",
       reason: "batch-count-mismatch",
+    });
+  });
+
+  it("does not accept not-modified when any ingest batches are reported", () => {
+    expect(classifySourceCompletion(payload({
+      status: "not_modified",
+      receivedBatchCount: 1,
+      expectedBatchCount: 1,
+    }), 1)).toEqual({
+      kind: "retry",
+      reason: "not-modified-batch-count-mismatch",
     });
   });
 });

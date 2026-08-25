@@ -36,10 +36,22 @@ export function classifySourceCompletion(
   payload: SourceCompletePayload,
   storedBatches: number,
 ): SourceCompletionDisposition {
-  if (payload.status === "not_modified") return { kind: "complete", reason: null };
-
   const suspiciousSignal = payload.signals.find((signal) => SEVERE_SIGNAL_PATTERN.test(signal));
   if (suspiciousSignal) return { kind: "quarantine", reason: suspiciousSignal };
+
+  if (payload.status === "not_modified") {
+    const httpReason = httpFailureReason(payload.httpStatus);
+    if (httpReason) {
+      return {
+        kind: isRetryableHttpStatus(payload.httpStatus) ? "retry" : "quarantine",
+        reason: httpReason,
+      };
+    }
+    if (payload.expectedBatchCount !== 0 || payload.receivedBatchCount !== 0 || storedBatches !== 0) {
+      return { kind: "retry", reason: "not-modified-batch-count-mismatch" };
+    }
+    return { kind: "complete", reason: null };
+  }
 
   if (payload.status === "quarantined") {
     return {

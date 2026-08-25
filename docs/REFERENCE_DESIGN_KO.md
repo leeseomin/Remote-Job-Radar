@@ -138,12 +138,12 @@ Cloudflare는 Worker 코드와 정적 파일을 하나의 배포 단위로 올�
 
 ```text
 1. Cloudflare Worker 1개
-   jobs.example.com
+   remote-job-radar.<계정-subdomain>.workers.dev
 
 2. Cloudflare D1 데이터베이스 1개
    remote-job-radar-prod
 
-3. GitHub 비공개 저장소 1개
+3. GitHub public 저장소 1개
    remote-job-radar
 
 4. GitHub Actions 워크플로 3개
@@ -203,8 +203,8 @@ Playwright 실행
 Async 근무 신호 판정
 역할·기술 키워드 추출
 점수 계산
-content hash 생성
-20개 단위 배치 전송
+content hash 및 source fingerprint 생성
+10개 단위 배치 전송
 실행 로그·실패 fixture 생성
 ```
 
@@ -728,11 +728,11 @@ crawl-fast.yml
   ATS API
   JSON-LD
   정적 HTML
-  하루 4회
+  12시간마다
 
 crawl-browser.yml
   Playwright 필요 소스만
-  하루 1회
+  12시간마다
 ```
 
 브라우저를 매번 설치·실행하지 않으므로 Actions 사용 시간을 줄일 수 있다.
@@ -860,25 +860,25 @@ jobs:
           retention-days: 7
 ```
 
-## 12.4 월간 Actions 사용량 예상
+## 12.4 Actions 사용량 예상
 
 목표 실행 시간을 다음과 같이 잡는다.
 
 ```text
 일반 수집:
-4회 × 30일 × 평균 2분 = 약 240분
+2회 × 30일 × 평균 2분 = 약 120분
 
 브라우저 수집:
-1회 × 30일 × 평균 5분 = 약 150분
+2회 × 30일 × 평균 5분 = 약 300분
 
 테스트·배포:
 월 약 100~250분
 
 예상 합계:
-약 490~640분
+약 520~670분
 ```
 
-실제 실행 시간이 두 배로 증가해도 GitHub Free 비공개 저장소의 월 2,000분 범위 안에 들어갈 가능성이 높다. 표준 GitHub-hosted runner는 공개 저장소에서 무료이고, GitHub Free 비공개 저장소에는 월 2,000 Actions 분이 포함된다.
+이 프로젝트는 public repository의 표준 GitHub-hosted runner 사용을 전제로 하므로 분 단위 과금 한도를 운영 기준으로 삼지 않는다. 다만 실행 지연과 외부 사이트 부하는 줄여야 하므로 12시간 주기와 fast/browser 워크플로 분리를 유지한다.
 
 ---
 
@@ -896,7 +896,7 @@ POST /api/internal/run-failed
 
 ## 13.2 배치 크기
 
-한 요청에 최대 20개 공고만 전송한다.
+한 요청에 최대 10개 공고만 전송한다.
 
 이유:
 
@@ -904,8 +904,8 @@ POST /api/internal/run-failed
 D1 Free는 Worker invocation당 최대 50 queries
 공고 1개당 jobs UPSERT 1회
 공고 1개당 job_versions INSERT OR IGNORE 1회
-20개 공고 = 약 40 queries
-nonce·batch·run 관련 쿼리 포함 시 약 43~47 queries
+10개 공고 = 약 20 queries
+nonce·batch·run 관련 쿼리 포함 시 약 24 queries
 ```
 
 FTS 갱신은 DB trigger로 처리하여 별도 Worker 쿼리를 사용하지 않는다.
@@ -1107,7 +1107,7 @@ async function verifyHmac(
 }
 ```
 
-최대 요청 크기는 약 512KB로 제한한다. 20개 공고가 이를 넘는 경우 크롤러가 더 작은 배치로 분할한다.
+최대 요청 크기는 256KB로 제한한다. 10개 공고가 이를 넘는 경우 크롤러가 더 작은 배치로 분할한다.
 
 ---
 
@@ -1129,9 +1129,10 @@ POST /api/internal/source-complete
   "httpStatus": 200,
   "fetchedJobCount": 24,
   "previousJobCount": 25,
-  "receivedBatchCount": 2,
-  "expectedBatchCount": 2,
+  "receivedBatchCount": 3,
+  "expectedBatchCount": 3,
   "responseHash": "...",
+  "contentFingerprint": "<64자리 SHA-256>",
   "etag": "...",
   "lastModified": "..."
 }
@@ -1148,6 +1149,8 @@ expectedBatchCount와 실제 batch 수가 같음
 로그인·캡차 페이지가 아님
 ```
 
+정규화·중복 제거 후 `(externalId, contentHash)` 목록의 fingerprint가 마지막 full snapshot과 같으면 공고 ingest를 생략하고 `not_modified`로 완료한다. 이때 Worker는 마지막 full snapshot에 없던 공고만 누락 횟수를 올리므로, 현재 공고를 다시 쓰지 않으면서도 연속 2회 누락 마감 규칙을 유지한다.
+
 ---
 
 # 17. 오마감 방지
@@ -1159,7 +1162,7 @@ expectedBatchCount와 실제 batch 수가 같음
 ```text
 이전 공고가 5개 이상인데 이번 결과가 0개
 공고 수가 한 번에 80% 이상 감소
-HTTP 403·429·5xx
+재시도 대상이 아닌 HTTP 4xx(예: 403·404)
 본문이 로그인 페이지
 캡차 텍스트 발견
 필수 selector 미발견
@@ -1174,9 +1177,11 @@ JSON schema가 예상과 다름
 기존 공고를 마감하지 않음
 missing_count를 증가시키지 않음
 source health에 오류 기록
-다음 실행 간격을 늘림
+사용자가 소스를 확인한 뒤 health를 초기화할 때까지 자동 계획에서 제외
 UI에 빨간 상태 표시
 ```
+
+HTTP 408·425·429·5xx, timeout, 일시적 네트워크 오류는 quarantine하지 않는다. 공고의 누락 횟수를 건드리지 않고 source를 `active`로 유지한 채 최소 12시간 backoff 후 다시 계획한다.
 
 ## 17.2 정상 실행 시
 
@@ -1702,7 +1707,7 @@ Async 근거
 
 ```text
 Application:
-jobs.example.com/*
+remote-job-radar.<계정-subdomain>.workers.dev/*
 
 Policy:
 Allow
@@ -1720,7 +1725,7 @@ One-time PIN 또는 연결된 IdP
 
 ```text
 Application:
-jobs.example.com/api/internal/*
+remote-job-radar.<계정-subdomain>.workers.dev/api/internal/*
 
 Policy action:
 Service Auth
@@ -1733,15 +1738,15 @@ Cloudflare Access는 도메인 전체뿐 아니라 특정 path 단위로 보호�
 
 ## 23.3 직접 접근 차단
 
-Custom Domain을 사용하고 `workers.dev` 주소를 비활성화한다.
+초기 무료 배포는 `workers.dev`를 사용하고 해당 호스트 전체를 Cloudflare Access로 보호한다.
 
 ```json
 {
-  "workers_dev": false
+  "workers_dev": true
 }
 ```
 
-이렇게 해야 Access가 적용되지 않은 `workers.dev` 주소로 직접 접근하는 우회 경로가 생기지 않는다.
+Preview URL을 활성화했다면 그 주소도 Access로 보호한다. 나중에 Custom Domain을 추가할 경우 새 호스트에 동일한 Access 정책을 적용하고 사용하지 않는 공개 route를 남기지 않는다.
 
 ---
 
@@ -1753,7 +1758,7 @@ Custom Domain을 사용하고 `workers.dev` 주소를 비활성화한다.
   "name": "remote-job-radar",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-13",
-  "workers_dev": false,
+  "workers_dev": true,
 
   "assets": {
     "binding": "ASSETS",
@@ -1931,8 +1936,8 @@ HMAC 정상 요청
 만료 timestamp
 재사용 nonce
 중복 batchId
-20개 초과 payload
-512KB 초과 body
+10개 초과 payload
+256KB 초과 body
 잘못된 schema
 D1 UPSERT idempotency
 ```
@@ -2241,12 +2246,12 @@ Security
   Idempotency Key
 
 Schedule
-  일반 소스 하루 4회
-  브라우저 소스 하루 1회
+  일반 소스 12시간마다
+  브라우저 소스 12시간마다
   workflow_dispatch 수동 실행
 
 Cost
-  기존 도메인 보유 시 월 $0에 가까움
+  workers.dev 사용 시 월 $0에 가까움
 ```
 
 이 무료형의 핵심 아키텍처는 다음 한 문장으로 정리할 수 있다.

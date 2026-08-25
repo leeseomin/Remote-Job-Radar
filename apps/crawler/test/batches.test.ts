@@ -33,14 +33,14 @@ function job(index: number): NormalizedJob {
 }
 
 describe("ingest batching", () => {
-  it("caps batches at 20 jobs", () => {
+  it("caps batches at 10 jobs and keeps each body within 256KB", () => {
     const batches = createIngestBatches("run", "source", Array.from({ length: 45 }, (_, index) => job(index)), 1);
-    expect(batches.map((batch) => batch.jobs.length)).toEqual([20, 20, 5]);
-    expect(batches.every((batch) => Buffer.byteLength(JSON.stringify(batch)) <= 512 * 1024)).toBe(true);
+    expect(batches.map((batch) => batch.jobs.length)).toEqual([10, 10, 10, 10, 5]);
+    expect(batches.every((batch) => Buffer.byteLength(JSON.stringify(batch)) <= 256 * 1024)).toBe(true);
   });
 
   it("rejects a single job that cannot fit safely", () => {
-    const oversized = { ...job(1), descriptionText: "x".repeat(510 * 1024) };
+    const oversized = { ...job(1), descriptionText: "x".repeat(254 * 1024) };
     expect(() => createIngestBatches("run", "source", [job(0), oversized], 1))
       .toThrow(/Single normalized job exceeds ingest body limit/);
   });

@@ -16,6 +16,8 @@ const source: CrawlSource = {
   config: {},
   etag: null,
   lastModified: null,
+  contentFingerprint: null,
+  snapshotRunId: null,
   previousJobCount: 0,
   browserRequired: false,
 };

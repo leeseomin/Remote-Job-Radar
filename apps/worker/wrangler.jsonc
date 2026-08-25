@@ -3,13 +3,7 @@
   "name": "remote-job-radar",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-13",
-  "workers_dev": false,
-  "routes": [
-    {
-      "pattern": "jobs.example.com",
-      "custom_domain": true
-    }
-  ],
+  "workers_dev": true,
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",

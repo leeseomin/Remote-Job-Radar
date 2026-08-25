@@ -7,7 +7,7 @@ import { unixNow } from "../../lib/db";
 import { ApiError } from "../../lib/errors";
 import { jsonOk } from "../../lib/http";
 
-const UPSERT_JOB_SQL = `INSERT INTO jobs (
+export const UPSERT_JOB_SQL = `INSERT INTO jobs (
   id, source_id, company_id, external_id, dedupe_key, canonical_url,
   title, company_name, department, location_text, employment_type,
   description_text, search_text, skills_text,
@@ -21,6 +21,7 @@ const UPSERT_JOB_SQL = `INSERT INTO jobs (
   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 )
 ON CONFLICT(source_id, external_id) DO UPDATE SET
+  company_id = excluded.company_id,
   dedupe_key = excluded.dedupe_key,
   canonical_url = excluded.canonical_url,
   title = excluded.title,
